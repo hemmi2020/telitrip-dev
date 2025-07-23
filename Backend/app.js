@@ -5,9 +5,9 @@ const connectToDb = require('./db/db');
 const cookieParser = require('cookie-parser');
 const userRoutes = require('./routes/user.route');
 const hotelRoutes = require('./routes/hotel.route.js');   
+  
 
-
-dotenv.config(); 
+dotenv.config();   
 connectToDb();
 const app = express();
 
