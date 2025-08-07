@@ -5,6 +5,7 @@ const connectToDb = require('./db/db');
 const cookieParser = require('cookie-parser');
 const userRoutes = require('./routes/user.route');
 const hotelRoutes = require('./routes/hotel.route.js');   
+const { globalErrorHandler, notFoundHandler } = require('./middlewares/errorHandler.middleware');
   
 
 dotenv.config();   
@@ -23,6 +24,19 @@ app.use(express.urlencoded({ extended: true }));
 app.get('/', (req, res) => {
     res.send('Hello World!');
 })
+// Health check route
+app.get('/health', (req, res) => {
+    const ApiResponse = require('./utils/response.util');
+    return ApiResponse.success(res, { 
+        status: 'OK', 
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    }, 'Server is running');
+});
+
+// Error handling middleware (MUST be last)
+app.use('*', notFoundHandler); // Handle 404s
+app.use(globalErrorHandler); // Handle all errors
 
 app.use('/users', userRoutes);
 app.use('/api', hotelRoutes); // Add this line

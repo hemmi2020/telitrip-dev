@@ -34,6 +34,21 @@ const userSchema = new mongoose.Schema({
     select: false,
     minlength: [6, 'Password must be at least 6 characters long'],
   },
+  phone: {
+    type: String,
+    default: '',
+    validate: {
+      validator: function(v) {
+        return !v || /^\+?[\d\s\-\(\)]+$/.test(v);
+      },
+      message: 'Invalid phone number format'
+    }
+  },
+  address: {
+    type: String,
+    default: ''
+  },
+
   role: {
     type: String,
     enum: ['user', 'admin', 'super-admin'],

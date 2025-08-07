@@ -22,6 +22,8 @@ import {
   Settings
 } from "lucide-react";
 import { UserDataContext } from './components/CartSystem';
+import Header from './components/Header';
+import Footer from './components/Footer';
 
 // Mock data for orders and payments (replace with actual API calls)
 const mockOrders = [
@@ -199,6 +201,7 @@ const AccountDashboard = () => {
   return (
     <div className="min-h-screen bg-gray-50 pt-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <Header />
         {/* Header */}
         <div className="bg-white rounded-lg shadow-sm p-6 mb-8">
           <div className="flex items-center space-x-4">
@@ -233,7 +236,7 @@ const AccountDashboard = () => {
                       : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
+                  {Icon && <Icon className="w-4 h-4" />}
                   <span>{label}</span>
                 </button>
               ))}
@@ -561,6 +564,7 @@ const AccountDashboard = () => {
           )}
         </div>
       </div>
+      <Footer />
     </div>
   );
 };
