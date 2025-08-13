@@ -3,7 +3,7 @@ const router = express.Router();
 const {body} = require('express-validator');
 const userController = require('../controllers/user.controller'); 
 const authMiddleware = require('../middlewares/auth.middleware');   
-const { validateRequest, validatePagination } = require('../middlewares/validation.middleware');
+const { validateRequest } = require('../middlewares/validation.middleware');
 
  
 router.post('/register',[ 
@@ -45,6 +45,22 @@ router.put('/preferences', [
 router.delete('/account', [
   body('password').notEmpty().withMessage('Password is required for account deletion')
 ], authMiddleware.authUser, userController.deleteUserAccount);
+
+// Forgot password
+router.post('/forgot-password', [
+  body('email').isEmail().withMessage('Valid email is required')
+], validateRequest, userController.forgotPassword);
+
+// Reset password
+router.post('/reset-password/:token', [
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
+  body('confirmPassword').custom((value, { req }) => {
+    if (value !== req.body.password) {
+      throw new Error('Passwords do not match');
+    }
+    return value;
+  })
+], validateRequest, userController.resetPassword);
 
 
 

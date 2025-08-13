@@ -48,13 +48,28 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
-
+  preferences: {
+    emailNotifications: {
+      type: Boolean,
+      default: true
+    },
+    twoFactorAuth: {
+      type: Boolean,
+      default: false
+    }
+  },
+  resetPasswordToken: String,
+  resetPasswordExpire: Date,
+  isEmailVerified: {
+    type: Boolean,
+    default: false
+  },
   role: {
     type: String,
     enum: ['user', 'admin', 'super-admin'],
     default: 'user',
   }
-  });
+  },{ timestamps: true });
 
   
   userSchema.methods.generateAuthToken = function (){
@@ -69,6 +84,20 @@ const userSchema = new mongoose.Schema({
   userSchema.statics.hashPassword = async function (password) {
     return await bcrypt.hash(password, 10);
   }
+
+  // Generate password reset token
+userSchema.methods.getResetPasswordToken = function() {
+  const resetToken = crypto.randomBytes(20).toString('hex');
+  
+  this.resetPasswordToken = crypto
+    .createHash('sha256')
+    .update(resetToken)
+    .digest('hex');
+    
+  this.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 minutes
+  
+  return resetToken;
+}
 
 
  const userModel = mongoose.model('user', userSchema);

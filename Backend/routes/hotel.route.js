@@ -28,12 +28,13 @@ router.post('/search-suggestions', async (req, res) => {
     // This is the correct Hotelbeds endpoint for autocomplete
     const searchUrl = `${HOTELBEDS_BASE_URL}/hotel-api/1.0/locations/destinations?language=ENG&query=${encodeURIComponent(query)}`;
     
-    const { signature, timestamp } = generateHotelbedsSignature();
+    const timestamp = Math.floor(Date.now() / 1000);
+const signature = generateHotelbedsSignature(HOTELBEDS_API_KEY, HOTELBEDS_SECRET, timestamp);
 
     try {
         const response = await fetch(searchUrl, {
             method: 'GET',
-            headers: {
+            headers: { 
                 'Accept': 'application/json',
                 'Api-key': HOTELBEDS_API_KEY,
                 'X-Signature': signature,
@@ -374,6 +375,7 @@ router.get('/geocode', async (req, res) => {
             success: true,
             data: data
         });
+        
 
     } catch (error) {
         console.error('Geocoding Error:', error);
