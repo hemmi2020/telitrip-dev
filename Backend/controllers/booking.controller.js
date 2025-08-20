@@ -188,7 +188,7 @@ module.exports.cancelBooking = asyncErrorHandler(async (req, res) => {
       });
 
       // Update payment status
-      payment.status = 'refunded';
+      payment.status = 'refunded'; 
       await payment.save();
 
       booking.paymentStatus = 'refunded';

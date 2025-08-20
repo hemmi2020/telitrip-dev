@@ -126,7 +126,7 @@ export const CartContext = createContext();
 // Cart Reducer
 const cartReducer = (state, action) => {
   switch (action.type) {
-    case "ADD_ITEM":
+    case "ADD_ITEM": {
       const existingItem = state.items.find(
         (item) =>
           item.id === action.payload.id &&
@@ -145,6 +145,7 @@ const cartReducer = (state, action) => {
             )
           : [...state.items, { ...action.payload, quantity: 1 }],
       };
+    }
 
     case "REMOVE_ITEM":
       return {
@@ -180,7 +181,7 @@ const cartReducer = (state, action) => {
 };
 
 // Cookie utility functions (simplified for demo)
-const setCookie = (name, value, days = 7) => {
+const setCookie = (name, value) => {
   try {
     localStorage.setItem(name, JSON.stringify(value));
   } catch (e) {
@@ -198,13 +199,13 @@ const getCookie = (name) => {
   }
 };
 
-const deleteCookie = (name) => {
-  try {
-    localStorage.removeItem(name);
-  } catch (e) {
-    console.error("Failed to remove from localStorage:", e);
-  }
-};
+// const deleteCookie = (name) => {
+//   try {
+//     localStorage.removeItem(name);
+//   } catch (e) {
+//     console.error("Failed to remove from localStorage:", e);
+//   }
+// };
 // Memory storage utility functions (replacing localStorage for cart)
 const setCartStorage = (items) => {
   setCookie("cart", items, 30); // Save cart items for 30 days
