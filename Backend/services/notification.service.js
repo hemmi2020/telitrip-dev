@@ -1217,7 +1217,7 @@ class NotificationService {
     } catch (error) {
       health.status = 'unhealthy';
       health.error = error.message;
-    }
+    } 
 
     return health;
   }

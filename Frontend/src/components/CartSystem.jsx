@@ -1,3 +1,5 @@
+// COMPLETE WORKING CartSystem.jsx - Copy this and replace your file
+
 import React, {
   createContext,
   useContext,
@@ -28,7 +30,7 @@ import {
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
-// Mock UserDataContext for demo
+// UserDataContext
 const UserDataContext = createContext();
 
 const UserProvider = ({ children }) => {
@@ -43,74 +45,48 @@ const UserProvider = ({ children }) => {
 
   // Check for existing authentication on component mount
   useEffect(() => {
-  const checkAuthStatus = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const userData = localStorage.getItem("userData");
+    const checkAuthStatus = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const userData = localStorage.getItem("userData");
 
-      console.log("🔍 Checking auth status:", { 
-        hasToken: !!token, 
-        hasUserData: !!userData 
-      });
+        console.log("🔍 Checking auth status:", {
+          hasToken: !!token,
+          hasUserData: !!userData,
+        });
 
-      if (token && userData) {
-        try {
-          const parsedUserData = JSON.parse(userData);
-          
-          // Verify the user data is valid
-          if (parsedUserData && parsedUserData.email) {
-            console.log("✅ Found valid stored auth:", parsedUserData.email);
-            setUser(parsedUserData);
-          } else {
-            console.log("❌ Invalid stored user data, clearing...");
+        if (token && userData) {
+          try {
+            const parsedUserData = JSON.parse(userData);
+
+            // Verify the user data is valid
+            if (parsedUserData && parsedUserData.email) {
+              console.log("✅ Found valid stored auth:", parsedUserData.email);
+              setUser(parsedUserData);
+            } else {
+              console.log("❌ Invalid stored user data, clearing...");
+              localStorage.removeItem("token");
+              localStorage.removeItem("userData");
+            }
+          } catch (parseError) {
+            console.error("❌ Error parsing user data:", parseError);
             localStorage.removeItem("token");
             localStorage.removeItem("userData");
           }
-        } catch (parseError) {
-          console.error("❌ Error parsing user data:", parseError);
-          localStorage.removeItem("token");
-          localStorage.removeItem("userData");
+        } else {
+          console.log("ℹ️ No stored authentication found");
         }
-      } else {
-        console.log("ℹ️ No stored authentication found");
+      } catch (error) {
+        console.error("❌ Auth check failed:", error);
+        localStorage.removeItem("token");
+        localStorage.removeItem("userData");
+      } finally {
+        setIsLoading(false);
       }
-    } catch (error) {
-      console.error("❌ Auth check failed:", error);
-      localStorage.removeItem("token");
-      localStorage.removeItem("userData");
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    };
 
-  checkAuthStatus();
-}, []);
-
-  // Update user and persist to localStorage
-  // const updateUser = (userData) => {
-  //   setUser(userData);
-  //   if (userData && userData.email) {
-  //     localStorage.setItem("userData", JSON.stringify(userData));
-  //   } else {
-  //     localStorage.removeItem("userData");
-  //     localStorage.removeItem("token");
-  //   }
-  // };
-
-  // Logout function
-  // const logout = () => {
-  //   setUser({
-  //     email: "",
-  //     fullname: {
-  //       firstname: "",
-  //       lastname: "",
-  //     },
-  //   });
-  //   localStorage.removeItem("token");
-  //   localStorage.removeItem("userData");
-  // };
-
-  // If you don't have a profile endpoint, use this simpler version:
+    checkAuthStatus();
+  }, []);
 
   // Show loading spinner while checking auth
   if (isLoading) {
@@ -127,12 +103,12 @@ const UserProvider = ({ children }) => {
     </UserDataContext.Provider>
   );
 };
+
 export { UserProvider, UserDataContext };
 
 // Cart Context
 export const CartContext = createContext();
 
-// Cart Reducer
 // Cart Reducer
 const cartReducer = (state, action) => {
   switch (action.type) {
@@ -190,7 +166,7 @@ const cartReducer = (state, action) => {
   }
 };
 
-// Cookie utility functions (simplified for demo)
+// Cookie utility functions
 const setCookie = (name, value) => {
   try {
     localStorage.setItem(name, JSON.stringify(value));
@@ -209,61 +185,36 @@ const getCookie = (name) => {
   }
 };
 
-// const deleteCookie = (name) => {
-//   try {
-//     localStorage.removeItem(name);
-//   } catch (e) {
-//     console.error("Failed to remove from localStorage:", e);
-//   }
-// };
-// Memory storage utility functions (replacing localStorage for cart)
-const setCartStorage = (items) => {
-  setCookie("cart", items, 30); // Save cart items for 30 days
-};
-const getCartStorage = () => {
-  const saved = getCookie("cart");
-  return saved || []; // Remove the JSON.parse since getCookie already returns parsed data
-};
-
 // Cart Provider
 export const CartProvider = ({ children }) => {
-  // Initialize state from memory
-  const getInitialState = () => {
-    const savedCart = getCartStorage();
-    return { items: savedCart || [] };
-  };
-
-  const [state, dispatch] = useReducer(cartReducer, getInitialState());
+  const [state, dispatch] = useReducer(cartReducer, {
+    items: getCookie("cart") || [],
+  });
 
   useEffect(() => {
-    setCartStorage(state.items); // Save cart to localStorage
+    setCookie("cart", state.items);
   }, [state.items]);
 
-  // Add item to cart
   const addToCart = (item) => {
     dispatch({ type: "ADD_ITEM", payload: item });
   };
 
-  const removeFromCart = (id, checkIn, checkOut) => {
-    dispatch({ type: "REMOVE_ITEM", payload: { id, checkIn, checkOut } });
+  const removeFromCart = (item) => {
+    dispatch({ type: "REMOVE_ITEM", payload: item });
   };
 
-  const updateQuantity = (id, checkIn, checkOut, quantity) => {
+  const updateQuantity = (item, quantity) => {
     if (quantity <= 0) {
-      removeFromCart(id, checkIn, checkOut);
-      return;
+      removeFromCart(item);
+    } else {
+      dispatch({ type: "UPDATE_QUANTITY", payload: { ...item, quantity } });
     }
-    dispatch({
-      type: "UPDATE_QUANTITY",
-      payload: { id, checkIn, checkOut, quantity },
-    });
   };
 
   const clearCart = () => {
     dispatch({ type: "CLEAR_CART" });
   };
 
-  // Get total price
   const getTotalPrice = () => {
     return state.items.reduce(
       (total, item) => total + item.price * item.quantity,
@@ -292,15 +243,13 @@ export const CartProvider = ({ children }) => {
   );
 };
 
-// Custom hook to use cart
-const useCart = () => {
+export const useCart = () => {
   const context = useContext(CartContext);
   if (!context) {
     throw new Error("useCart must be used within a CartProvider");
   }
   return context;
 };
-export { useCart };
 
 // Cart Icon Component for Header
 const CartIcon = ({ onClick }) => {
@@ -323,18 +272,18 @@ const CartIcon = ({ onClick }) => {
 };
 export { CartIcon };
 
-// Rate Class Badge Component
+// Rate class badge helper
 const getRateClassBadge = (rateClass) => {
-  switch (rateClass) {
-    case "NRF":
+  switch (rateClass?.toLowerCase()) {
+    case "non-refundable":
       return (
-        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+        <span className="inline-flex items-center px-2 py-1 bg-red-100 text-red-800 rounded text-xs">
           Non-Refundable
         </span>
       );
-    case "NOR":
+    case "refundable":
       return (
-        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+        <span className="inline-flex items-center px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
           Refundable
         </span>
       );
@@ -343,7 +292,7 @@ const getRateClassBadge = (rateClass) => {
   }
 };
 
-// AuthModal Component
+// FIXED AuthModal Component
 const AuthModal = ({
   isOpen,
   onClose,
@@ -356,8 +305,7 @@ const AuthModal = ({
   const [error, setError] = useState("");
 
   const { setUser } = useContext(UserDataContext);
-
-  const Navigate = useNavigate();
+  const navigate = useNavigate();
 
   // Form states
   const [loginData, setLoginData] = useState({ email: "", password: "" });
@@ -368,136 +316,200 @@ const AuthModal = ({
     password: "",
   });
 
+  // FIXED LOGIN HANDLER
   const handleLogin = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setError("");
+
+    console.log("🚀 Starting login process...");
+    console.log("📤 Login data:", { email: loginData.email, password: "***" });
 
     const userData = {
       email: loginData.email,
       password: loginData.password,
     };
 
-  try {
-    const response = await axios.post(
-      `${import.meta.env.VITE_BASE_URL}/users/login`,
-      userData
-    );
-    console.log("Login response:", response.data);
+    try {
+      const response = await axios.post(
+        `${import.meta.env.VITE_BASE_URL}/users/login`,
+        userData
+      );
 
-    if (response.status === 200 || response.status === 201) {
-      const { token, user } = response.data;
-      localStorage.setItem("token", token);
-      localStorage.setItem("userData", JSON.stringify(user));
-      setUser(user);
-      
-      console.log("✅ Authentication successful:", { user, token: "***" });
-      // Clear form data
-      setLoginData({ email: "", password: "" });
+      console.log("📥 Full login response:", response);
+      console.log("📋 Response data:", response.data);
 
-      // Close modal and navigate
-      onClose();
-      if (onAuthSuccess) {
-        onAuthSuccess(user);
-      }
-    } else {
-      // Handle case where response doesn't have expected structure
-      throw new Error("Invalid response structure from server");
-    }
-  } catch (error) {
-    console.error("Login error:", error);
-    
-    // Better error handling
-    let errorMessage = "Failed to login. Please try again.";
-    
-    if (error.response) {
-      // Server responded with error
-      errorMessage = error.response.data?.message || 
-                    error.response.data?.data?.message || 
-                    `Server error: ${error.response.status}`;
-    } else if (error.request) {
-      // Network error
-      errorMessage = "Network error. Please check your connection.";
-    }
-    
-    setError(errorMessage);
-  } finally {
-    setIsLoading(false);
-  }
-}
-  const handleSignup = async (e) => {
-  e.preventDefault();
-  setIsLoading(true);
-  setError("");
+      if (response.status === 200 || response.status === 201) {
+        const responseData = response.data;
 
-  const newUser = {
-    email: signupData.email,
-    password: signupData.password,
-    fullname: {
-      firstname: signupData.firstName,
-      lastname: signupData.lastName,
-    },
-  };
+        // Handle different response structures
+        let token, user;
 
-  try {
-    // FIX 1: Correct API endpoint
-    const response = await axios.post(
-      `${import.meta.env.VITE_BASE_URL}/users/register`,  // This is correct
-      newUser
-    );
-    
-    console.log("Registration response:", response.data);
+        if (responseData.success && responseData.data) {
+          // Backend uses ApiResponse wrapper: { success: true, data: { token, user } }
+          token = responseData.data.token;
+          user = responseData.data.user;
+          console.log("📦 Using wrapped response structure");
+        } else if (responseData.token && responseData.user) {
+          // Direct response: { token, user }
+          token = responseData.token;
+          user = responseData.user;
+          console.log("📦 Using direct response structure");
+        } else {
+          throw new Error("Invalid response structure from server");
+        }
 
-    // FIX 2: Handle the correct response structure
-    if (response.status === 200 || response.status === 201) {
-      const responseData = response.data;
-      
-      // Check if response has the expected structure
-      if (responseData.success && responseData.data) {
-        // Backend uses 'data' wrapper
-        const { token, user } = responseData.data;
-        
+        if (!token || !user) {
+          throw new Error("Missing token or user data in response");
+        }
+
+        // Store authentication data
         localStorage.setItem("token", token);
         localStorage.setItem("userData", JSON.stringify(user));
         setUser(user);
-        
-        console.log("✅ Registration successful:", { user, token: "***" });
+
+        console.log("✅ Login successful:", {
+          userEmail: user.email,
+          tokenLength: token.length,
+          userName: user.fullname
+            ? `${user.fullname.firstname} ${user.fullname.lastname}`
+            : "N/A",
+        });
 
         // Clear form data
-        setSignupData({ firstName: "", lastName: "", email: "", password: "" });
+        setLoginData({ email: "", password: "" });
 
-        // Close modal and navigate
+        // Close modal and execute callbacks
         onClose();
         if (onAuthSuccess) {
           onAuthSuccess(user);
         }
-      } else {
-        // Handle case where response doesn't have expected structure
-        throw new Error("Invalid response structure from server");
       }
-    }
-  } catch (error) {
-    console.error("Registration error:", error);
-    
-    // Better error handling
-    let errorMessage = "Failed to register. Please try again.";
-    
-    if (error.response) {
-      // Server responded with error
-      errorMessage = error.response.data?.message || 
-                    error.response.data?.data?.message || 
-                    `Server error: ${error.response.status}`;
-    } else if (error.request) {
-      // Network error
-      errorMessage = "Network error. Please check your connection.";
-    }
-    
-    setError(errorMessage);
-  } finally {
-    setIsLoading(false);
-  }
-};
+    } catch (error) {
+      console.error("❌ Login error:", error);
 
+      let errorMessage = "Failed to login. Please try again.";
+
+      if (error.response) {
+        console.error("Server error response:", error.response.data);
+        errorMessage =
+          error.response.data?.message ||
+          error.response.data?.data?.message ||
+          `Server error: ${error.response.status}`;
+      } else if (error.request) {
+        console.error("Network error:", error.request);
+        errorMessage = "Network error. Please check your connection.";
+      } else {
+        console.error("Other error:", error.message);
+        errorMessage = error.message;
+      }
+
+      setError(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // FIXED SIGNUP HANDLER
+  const handleSignup = async (e) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError("");
+
+    console.log("🚀 Starting registration process...");
+
+    const newUser = {
+      email: signupData.email,
+      password: signupData.password,
+      fullname: {
+        firstname: signupData.firstName,
+        lastname: signupData.lastName,
+      },
+    };
+
+    console.log("📤 Registration data:", { ...newUser, password: "***" });
+
+    try {
+      const response = await axios.post(
+        `${import.meta.env.VITE_BASE_URL}/users/register`,
+        newUser
+      );
+
+      console.log("📥 Full registration response:", response);
+      console.log("📋 Response data:", response.data);
+
+      if (response.status === 200 || response.status === 201) {
+        const responseData = response.data;
+
+        // Handle different response structures
+        let token, user;
+
+        if (responseData.success && responseData.data) {
+          // Backend uses ApiResponse wrapper: { success: true, data: { token, user } }
+          token = responseData.data.token;
+          user = responseData.data.user;
+          console.log("📦 Using wrapped response structure");
+        } else if (responseData.token && responseData.user) {
+          // Direct response: { token, user }
+          token = responseData.token;
+          user = responseData.user;
+          console.log("📦 Using direct response structure");
+        } else {
+          throw new Error("Invalid response structure from server");
+        }
+
+        if (!token || !user) {
+          throw new Error("Missing token or user data in response");
+        }
+
+        // Store authentication data
+        localStorage.setItem("token", token);
+        localStorage.setItem("userData", JSON.stringify(user));
+        setUser(user);
+
+        console.log("✅ Registration successful:", {
+          userEmail: user.email,
+          tokenLength: token.length,
+          userName: user.fullname
+            ? `${user.fullname.firstname} ${user.fullname.lastname}`
+            : "N/A",
+        });
+
+        // Clear form data
+        setSignupData({ firstName: "", lastName: "", email: "", password: "" });
+
+        // Close modal and execute callbacks
+        onClose();
+        if (onAuthSuccess) {
+          onAuthSuccess(user);
+        }
+      }
+    } catch (error) {
+      console.error("❌ Registration error:", error);
+
+      let errorMessage = "Failed to register. Please try again.";
+
+      if (error.response) {
+        console.error("Server error response:", error.response.data);
+        errorMessage =
+          error.response.data?.message ||
+          error.response.data?.data?.message ||
+          `Server error: ${error.response.status}`;
+      } else if (error.request) {
+        console.error("Network error:", error.request);
+        errorMessage = "Network error. Please check your connection.";
+      } else {
+        console.error("Other error:", error.message);
+        errorMessage = error.message;
+      }
+
+      setError(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Reset form and error when modal closes
   const handleClose = () => {
     setError("");
     setLoginData({ email: "", password: "" });
@@ -532,10 +544,11 @@ const AuthModal = ({
             }}
             className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
               activeTab === "login"
-                ? "text-blue-600 border-b-2 border-blue-600"
-                : "text-gray-600 hover:text-gray-800"
+                ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50"
+                : "text-gray-500 hover:text-gray-700"
             }`}
           >
+            <User className="w-4 h-4 inline mr-2" />
             Login
           </button>
           <button
@@ -545,34 +558,32 @@ const AuthModal = ({
             }}
             className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
               activeTab === "signup"
-                ? "text-blue-600 border-b-2 border-blue-600"
-                : "text-gray-600 hover:text-gray-800"
+                ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50"
+                : "text-gray-500 hover:text-gray-700"
             }`}
           >
+            <User className="w-4 h-4 inline mr-2" />
             Sign Up
           </button>
         </div>
 
-        {/* Form Content */}
+        {/* Content */}
         <div className="p-6">
           {error && (
-            <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-6">
-              <div className="flex">
-                <div className="ml-3">
-                  <p className="text-sm text-red-700">{error}</p>
-                </div>
-              </div>
+            <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-4">
+              <p className="text-sm text-red-700">{error}</p>
             </div>
           )}
 
-          {activeTab === "login" ? (
+          {/* Login Form */}
+          {activeTab === "login" && (
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email address
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Email Address
                 </label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                   <input
                     type="email"
                     required
@@ -580,19 +591,18 @@ const AuthModal = ({
                     onChange={(e) =>
                       setLoginData({ ...loginData, email: e.target.value })
                     }
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="Enter your email"
-                    disabled={isLoading}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Password
                 </label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                   <input
                     type={showPassword ? "text" : "password"}
                     required
@@ -600,15 +610,13 @@ const AuthModal = ({
                     onChange={(e) =>
                       setLoginData({ ...loginData, password: e.target.value })
                     }
-                    className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="Enter your password"
-                    disabled={isLoading}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
-                    disabled={isLoading}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
                   >
                     {showPassword ? (
                       <EyeOff className="h-4 w-4" />
@@ -624,65 +632,56 @@ const AuthModal = ({
                 disabled={isLoading}
                 className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                {isLoading ? "Signing in..." : "Sign in"}
+                {isLoading ? "Signing in..." : "Sign In"}
               </button>
             </form>
-          ) : (
-            <form onSubmit={handleSignup} className="space-y-4">
-              <div className="grid grid-cols-1 gap-y-4 gap-x-4 sm:grid-cols-2">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    First name
-                  </label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                    <input
-                      type="text"
-                      required
-                      value={signupData.firstName}
-                      onChange={(e) =>
-                        setSignupData({
-                          ...signupData,
-                          firstName: e.target.value,
-                        })
-                      }
-                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                      placeholder="First name"
-                      disabled={isLoading}
-                    />
-                  </div>
-                </div>
+          )}
 
+          {/* Signup Form */}
+          {activeTab === "signup" && (
+            <form onSubmit={handleSignup} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Last name
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    First Name
                   </label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                    <input
-                      type="text"
-                      required
-                      value={signupData.lastName}
-                      onChange={(e) =>
-                        setSignupData({
-                          ...signupData,
-                          lastName: e.target.value,
-                        })
-                      }
-                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                      placeholder="Last name"
-                      disabled={isLoading}
-                    />
-                  </div>
+                  <input
+                    type="text"
+                    required
+                    value={signupData.firstName}
+                    onChange={(e) =>
+                      setSignupData({
+                        ...signupData,
+                        firstName: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="First name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Last Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={signupData.lastName}
+                    onChange={(e) =>
+                      setSignupData({ ...signupData, lastName: e.target.value })
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Last name"
+                  />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email address
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Email Address
                 </label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                   <input
                     type="email"
                     required
@@ -690,19 +689,18 @@ const AuthModal = ({
                     onChange={(e) =>
                       setSignupData({ ...signupData, email: e.target.value })
                     }
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="Enter your email"
-                    disabled={isLoading}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Password
                 </label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                   <input
                     type={showPassword ? "text" : "password"}
                     required
@@ -710,15 +708,13 @@ const AuthModal = ({
                     onChange={(e) =>
                       setSignupData({ ...signupData, password: e.target.value })
                     }
-                    className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                    className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="Create a password"
-                    disabled={isLoading}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
-                    disabled={isLoading}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
                   >
                     {showPassword ? (
                       <EyeOff className="h-4 w-4" />
@@ -743,6 +739,7 @@ const AuthModal = ({
     </div>
   );
 };
+
 export { AuthModal };
 
 // Enhanced Slide-out Cart Component with Authentication
@@ -753,6 +750,13 @@ const SlideOutCart = ({ isOpen, onClose, onProceedToCheckout }) => {
   const [showAuthModal, setShowAuthModal] = useState(false);
 
   const handleProceedToCheckout = () => {
+    console.log("🛒 Proceed to checkout clicked");
+    console.log("👤 User status:", {
+      isLoggedIn: !!(user && user.email),
+      userEmail: user?.email || "N/A",
+    });
+    
+
     if (user && user.email) {
       // User is logged in, proceed to checkout
       if (onProceedToCheckout) {
@@ -765,7 +769,7 @@ const SlideOutCart = ({ isOpen, onClose, onProceedToCheckout }) => {
   };
 
   const handleAuthSuccess = (userData) => {
-    console.log("User authenticated:", userData);
+    console.log("✅ User authenticated successfully:", userData);
     setShowAuthModal(false); // Close the modal
     if (onProceedToCheckout) {
       onProceedToCheckout(); // Proceed to checkout after login/signup
@@ -781,6 +785,7 @@ const SlideOutCart = ({ isOpen, onClose, onProceedToCheckout }) => {
           onClick={onClose}
         />
       )}
+
       {/* Cart Slide-out */}
       <div
         className={`fixed top-0 right-0 h-full w-96 bg-white shadow-xl z-50 transform transition-transform duration-300 ${
@@ -798,107 +803,90 @@ const SlideOutCart = ({ isOpen, onClose, onProceedToCheckout }) => {
               <X className="w-5 h-5" />
             </button>
           </div>
+
           {/* Cart Items */}
           <div className="flex-1 overflow-y-auto">
             {items.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                <ShoppingCart className="w-12 h-12 mb-4" />
-                <p className="text-lg">Your cart is empty</p>
-                <p className="text-sm">Add some rooms to get started</p>
+                <ShoppingCart className="w-16 h-16 mb-4" />
+                <p className="text-lg font-medium">Your cart is empty</p>
+                <p className="text-sm">Add some rooms to get started!</p>
               </div>
             ) : (
               <div className="p-4 space-y-4">
-                {items.map((item) => (
+                {items.map((item, index) => (
                   <div
                     key={`${item.id}-${item.checkIn}-${item.checkOut}`}
-                    className="border rounded-lg p-4"
+                    className="border rounded-lg p-3"
                   >
                     <div className="flex justify-between items-start mb-2">
                       <div className="flex-1">
-                        <h4 className="font-medium">{item.roomName}</h4>
-                        <p className="text-sm text-gray-600">
+                        <h3 className="font-medium text-sm">{item.roomName}</h3>
+                        <p className="text-xs text-gray-600">
                           {item.hotelName}
                         </p>
-                        <div className="flex items-center text-sm text-gray-500 mt-1">
-                          <MapPin className="w-4 h-4 mr-1" />
+                        <div className="flex items-center text-xs text-gray-500 mt-1">
+                          <MapPin className="w-3 h-3 mr-1" />
                           {item.location}
                         </div>
                       </div>
                       <button
-                        onClick={() =>
-                          removeFromCart(item.id, item.checkIn, item.checkOut)
-                        }
-                        className="p-1 hover:bg-gray-100 rounded"
+                        onClick={() => removeFromCart(item)}
+                        className="text-red-500 hover:text-red-700 p-1"
                       >
-                        <Trash2 className="w-4 h-4 text-red-500" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
-                    <div className="flex items-center text-sm text-gray-600 mb-2">
-                      <Calendar className="w-4 h-4 mr-1" />
-                      {new Date(item.checkIn).toLocaleDateString()} -{" "}
-                      {new Date(item.checkOut).toLocaleDateString()}
-                    </div>
-                    <div className="flex items-center text-sm text-gray-600 mb-2">
-                      <Users className="w-4 h-4 mr-1" />
-                      {item.guests} guest(s)
-                    </div>
-                    <div className="mb-2">
-                      <div className="text-sm text-gray-600">
-                        <strong>Board:</strong> {item.boardName}
+
+                    <div className="flex items-center justify-between text-xs text-gray-600 mb-2">
+                      <div className="flex items-center">
+                        <Calendar className="w-3 h-3 mr-1" />
+                        {new Date(item.checkIn).toLocaleDateString()} -{" "}
+                        {new Date(item.checkOut).toLocaleDateString()}
                       </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        {getRateClassBadge(item.rateClass)}
-                        {item.offers && item.offers.length > 0 && (
-                          <span className="inline-flex items-center px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
-                            <Tag className="w-3 h-3 mr-1" />
-                            Special Offer
-                          </span>
-                        )}
+                      <div className="flex items-center">
+                        <Users className="w-3 h-3 mr-1" />
+                        {item.guests} guests
                       </div>
                     </div>
+
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
                         <button
                           onClick={() =>
-                            updateQuantity(
-                              item.id,
-                              item.checkIn,
-                              item.checkOut,
-                              item.quantity - 1
-                            )
+                            updateQuantity(item, item.quantity - 1)
                           }
-                          className="p-1 hover:bg-gray-100 rounded"
+                          className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100"
                         >
-                          <Minus className="w-4 h-4" />
+                          <Minus className="w-3 h-3" />
                         </button>
-                        <span className="w-8 text-center">{item.quantity}</span>
+                        <span className="text-sm font-medium">
+                          {item.quantity}
+                        </span>
                         <button
                           onClick={() =>
-                            updateQuantity(
-                              item.id,
-                              item.checkIn,
-                              item.checkOut,
-                              item.quantity + 1
-                            )
+                            updateQuantity(item, item.quantity + 1)
                           }
-                          className="p-1 hover:bg-gray-100 rounded"
+                          className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100"
                         >
-                          <Plus className="w-4 h-4" />
+                          <Plus className="w-3 h-3" />
                         </button>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm text-gray-600">
-                          €{item.price} per night
-                        </p>
-                        <p className="font-semibold">
+                        <p className="text-sm font-bold text-blue-600">
                           €{(item.price * item.quantity).toFixed(2)}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          €{item.price}/night
                         </p>
                       </div>
                     </div>
-                    {item.cancellationPolicy && (
-                      <div className="text-xs text-gray-500 mt-2">
-                        <Info className="w-3 h-3 inline mr-1" />
-                        {item.cancellationPolicy}
+
+                    {item.boardName && (
+                      <div className="mt-2 text-xs text-gray-600">
+                        <span className="bg-gray-100 px-2 py-1 rounded">
+                          {item.boardName}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -906,28 +894,28 @@ const SlideOutCart = ({ isOpen, onClose, onProceedToCheckout }) => {
               </div>
             )}
           </div>
+
           {/* Footer */}
           {items.length > 0 && (
-            <div className="border-t p-4">
-              <div className="flex justify-between items-center mb-4">
-                <span className="text-lg font-semibold">
-                  Total: €{getTotalPrice().toFixed(2)}
+            <div className="border-t p-4 space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-lg font-semibold">Total</span>
+                <span className="text-xl font-bold text-blue-600">
+                  €{getTotalPrice().toFixed(2)}
                 </span>
-                <button
-                  onClick={clearCart}
-                  className="text-red-500 hover:text-red-700 text-sm"
-                >
-                  Clear Cart
-                </button>
               </div>
-              {/* User Status Indicator */}
-              {user && (
-                <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded-lg">
-                  <p className="text-sm text-green-800">
-                    Welcome back, {user.fullname?.firstname || user.email}!
-                  </p>
+
+              {getTotalPrice() > 1000 && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <div className="flex items-center">
+                    <Tag className="w-4 h-4 text-green-600 mr-2" />
+                    <p className="text-sm text-green-700">
+                      Free cancellation up to 24 hours before check-in
+                    </p>
+                  </div>
                 </div>
               )}
+
               <button
                 onClick={handleProceedToCheckout}
                 className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
@@ -937,6 +925,7 @@ const SlideOutCart = ({ isOpen, onClose, onProceedToCheckout }) => {
                   ? "Proceed to Checkout"
                   : "Login to Checkout"}
               </button>
+
               {(!user || !user.email) && (
                 <p className="text-xs text-gray-500 text-center mt-2">
                   You need to login or create an account to proceed
@@ -946,6 +935,7 @@ const SlideOutCart = ({ isOpen, onClose, onProceedToCheckout }) => {
           )}
         </div>
       </div>
+
       {/* Authentication Modal */}
       <AuthModal
         isOpen={showAuthModal}
@@ -956,8 +946,10 @@ const SlideOutCart = ({ isOpen, onClose, onProceedToCheckout }) => {
     </>
   );
 };
+
 export { SlideOutCart };
 
+// Room Card Component
 const RoomCard = ({ room }) => {
   const { addToCart } = useCart();
 
@@ -995,6 +987,7 @@ const RoomCard = ({ room }) => {
           <p className="text-sm text-gray-500">per night</p>
         </div>
       </div>
+
       <div className="flex items-center gap-2 mb-3">
         {getRateClassBadge(room.rateClass)}
         {room.offers && room.offers.length > 0 && (
@@ -1004,6 +997,7 @@ const RoomCard = ({ room }) => {
           </span>
         )}
       </div>
+
       <button
         onClick={handleAddToCart}
         className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
@@ -1015,4 +1009,4 @@ const RoomCard = ({ room }) => {
   );
 };
 
-// Complete Hotel Booking App
+export { RoomCard };

@@ -9,6 +9,7 @@ import HotelSearchResults from './HotelSearchResults';
 import HotelDetails from './HotelDetails';
 import { CartProvider } from './components/CartSystem';
 import { UserProvider } from './components/CartSystem';
+import CheckoutScreen from './Checkout';
 
 
 const App = () => {
@@ -24,6 +25,7 @@ const App = () => {
             <Route path="/hotel-search-results" element={<HotelSearchResults />} />
             <Route path="/hotel-details/:hotelCode" element={<HotelDetails />} />
             <Route path="/account" element={<AccountDashboard />} />
+            <Route path="/checkout" element={<CheckoutScreen />} />
           </Routes>
         </CartProvider>
       </UserProvider>

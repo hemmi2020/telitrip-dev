@@ -87,7 +87,7 @@ const Header = () => {
 </span>
                     <button
                       onClick={handleLogout}
-                      className="text-sm text-red-600 hover:text-red-700"
+                      className="text-sm text-red-600 hover:text-red-700 hover:underline"
                     >
                       Logout
                     </button>

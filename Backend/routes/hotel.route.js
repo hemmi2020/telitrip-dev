@@ -351,7 +351,7 @@ router.get('/geocode', async (req, res) => {
             return res.status(400).json({
                 success: false, 
                 error: 'Query parameter "q" is required'
-            });
+            }); 
         }
 
         const response = await fetch( 
