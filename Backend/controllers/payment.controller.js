@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const fetch = require('node-fetch');
-const paymentModel = require('../models/payment.model').default;
+const paymentModel = require('../models/payment.model').default; 
 const bookingModel = require('../models/booking.model');
 const ApiResponse = require('../utils/response.util');
 const { asyncErrorHandler } = require('../middlewares/errorHandler.middleware');

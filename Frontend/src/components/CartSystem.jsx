@@ -43,38 +43,48 @@ const UserProvider = ({ children }) => {
 
   // Check for existing authentication on component mount
   useEffect(() => {
-    const checkAuthStatus = async () => {
-      try {
-        const token = localStorage.getItem("token");
-        const userData = localStorage.getItem("userData");
+  const checkAuthStatus = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const userData = localStorage.getItem("userData");
 
-        if (token && userData) {
-          try {
-            const parsedUserData = JSON.parse(userData);
-            if (parsedUserData.email) {
-              setUser(parsedUserData);
-            } else {
-              // Invalid user data, clear everything
-              localStorage.removeItem("token");
-              localStorage.removeItem("userData");
-            }
-          } catch (parseError) {
-            console.error("Error parsing user data:", parseError);
+      console.log("🔍 Checking auth status:", { 
+        hasToken: !!token, 
+        hasUserData: !!userData 
+      });
+
+      if (token && userData) {
+        try {
+          const parsedUserData = JSON.parse(userData);
+          
+          // Verify the user data is valid
+          if (parsedUserData && parsedUserData.email) {
+            console.log("✅ Found valid stored auth:", parsedUserData.email);
+            setUser(parsedUserData);
+          } else {
+            console.log("❌ Invalid stored user data, clearing...");
             localStorage.removeItem("token");
             localStorage.removeItem("userData");
           }
+        } catch (parseError) {
+          console.error("❌ Error parsing user data:", parseError);
+          localStorage.removeItem("token");
+          localStorage.removeItem("userData");
         }
-      } catch (error) {
-        console.error("Auth check failed:", error);
-        localStorage.removeItem("token");
-        localStorage.removeItem("userData");
-      } finally {
-        setIsLoading(false);
+      } else {
+        console.log("ℹ️ No stored authentication found");
       }
-    };
+    } catch (error) {
+      console.error("❌ Auth check failed:", error);
+      localStorage.removeItem("token");
+      localStorage.removeItem("userData");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    checkAuthStatus();
-  }, []);
+  checkAuthStatus();
+}, []);
 
   // Update user and persist to localStorage
   // const updateUser = (userData) => {
@@ -368,62 +378,90 @@ const AuthModal = ({
       password: loginData.password,
     };
 
-    try {
-      const response = await axios.post(
-        `${import.meta.env.VITE_BASE_URL}/users/login`,
-        userData
-      );
-      console.log("Login response:", response.data);
+  try {
+    const response = await axios.post(
+      `${import.meta.env.VITE_BASE_URL}/users/login`,
+      userData
+    );
+    console.log("Login response:", response.data);
 
-      if (response.status === 200 || response.status === 201) {
-        const data = response.data;
-        localStorage.setItem("token", data.token);
-        localStorage.setItem("userData", JSON.stringify(data.user));
-        setUser(data.user);
-        // Clear form data
-        setLoginData({ email: "", password: "" });
+    if (response.status === 200 || response.status === 201) {
+      const { token, user } = response.data;
+      localStorage.setItem("token", token);
+      localStorage.setItem("userData", JSON.stringify(user));
+      setUser(user);
+      
+      console.log("✅ Authentication successful:", { user, token: "***" });
+      // Clear form data
+      setLoginData({ email: "", password: "" });
 
-        // Close modal and navigate
-        onClose();
-        if (onAuthSuccess) {
-          onAuthSuccess(data.user);
-        }
+      // Close modal and navigate
+      onClose();
+      if (onAuthSuccess) {
+        onAuthSuccess(user);
       }
-    } catch (error) {
-      console.error("Login error:", error);
-      setError(
-        error.response?.data?.message || "Failed to login. Please try again."
-      );
-    } finally {
-      setIsLoading(false);
+    } else {
+      // Handle case where response doesn't have expected structure
+      throw new Error("Invalid response structure from server");
     }
-  };
+  } catch (error) {
+    console.error("Login error:", error);
+    
+    // Better error handling
+    let errorMessage = "Failed to login. Please try again.";
+    
+    if (error.response) {
+      // Server responded with error
+      errorMessage = error.response.data?.message || 
+                    error.response.data?.data?.message || 
+                    `Server error: ${error.response.status}`;
+    } else if (error.request) {
+      // Network error
+      errorMessage = "Network error. Please check your connection.";
+    }
+    
+    setError(errorMessage);
+  } finally {
+    setIsLoading(false);
+  }
+}
   const handleSignup = async (e) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setError("");
+  e.preventDefault();
+  setIsLoading(true);
+  setError("");
 
-    const newUser = {
-      email: signupData.email,
-      password: signupData.password,
-      fullname: {
-        firstname: signupData.firstName,
-        lastname: signupData.lastName,
-      },
-    };
+  const newUser = {
+    email: signupData.email,
+    password: signupData.password,
+    fullname: {
+      firstname: signupData.firstName,
+      lastname: signupData.lastName,
+    },
+  };
 
-    try {
-      const response = await axios.post(
-        `${import.meta.env.VITE_BASE_URL}/users/register`,
-        newUser
-      );
-      console.log("Registration response:", response.data);
+  try {
+    // FIX 1: Correct API endpoint
+    const response = await axios.post(
+      `${import.meta.env.VITE_BASE_URL}/users/register`,  // This is correct
+      newUser
+    );
+    
+    console.log("Registration response:", response.data);
 
-      if (response.status === 200 || response.status === 201) {
-        const data = response.data;
-        localStorage.setItem("token", data.token);
-        localStorage.setItem("userData", JSON.stringify(data.user));
-        setUser(data.user);
+    // FIX 2: Handle the correct response structure
+    if (response.status === 200 || response.status === 201) {
+      const responseData = response.data;
+      
+      // Check if response has the expected structure
+      if (responseData.success && responseData.data) {
+        // Backend uses 'data' wrapper
+        const { token, user } = responseData.data;
+        
+        localStorage.setItem("token", token);
+        localStorage.setItem("userData", JSON.stringify(user));
+        setUser(user);
+        
+        console.log("✅ Registration successful:", { user, token: "***" });
 
         // Clear form data
         setSignupData({ firstName: "", lastName: "", email: "", password: "" });
@@ -431,18 +469,34 @@ const AuthModal = ({
         // Close modal and navigate
         onClose();
         if (onAuthSuccess) {
-          onAuthSuccess(data.user);
+          onAuthSuccess(user);
         }
+      } else {
+        // Handle case where response doesn't have expected structure
+        throw new Error("Invalid response structure from server");
       }
-    } catch (error) {
-      console.error("Registration error:", error);
-      setError(
-        error.response?.data?.message || "Failed to register. Please try again."
-      );
-    } finally {
-      setIsLoading(false);
     }
-  };
+  } catch (error) {
+    console.error("Registration error:", error);
+    
+    // Better error handling
+    let errorMessage = "Failed to register. Please try again.";
+    
+    if (error.response) {
+      // Server responded with error
+      errorMessage = error.response.data?.message || 
+                    error.response.data?.data?.message || 
+                    `Server error: ${error.response.status}`;
+    } else if (error.request) {
+      // Network error
+      errorMessage = "Network error. Please check your connection.";
+    }
+    
+    setError(errorMessage);
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   const handleClose = () => {
     setError("");

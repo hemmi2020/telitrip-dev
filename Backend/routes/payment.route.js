@@ -383,8 +383,8 @@ router.use((error, req, res, next) => {
 });
 
 // 404 handler for payment routes
-router.use('*', (req, res) => {
+router.use('/error', (req, res) => {
   return ApiResponse.notFound(res, `Payment endpoint not found: ${req.method} ${req.originalUrl}`);
 });
 
-module.exports = router;
+module.exports = router; 
