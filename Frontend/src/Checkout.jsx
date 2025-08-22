@@ -1,66 +1,68 @@
-import React, { useState, useContext } from 'react';
-import {
-  CreditCard,
-  MapPin,
-  Calendar,
-  Users,
-  ArrowLeft,
-  CheckCircle,
+import React, { useState, useEffect } from 'react';
+import { 
+  ArrowLeft, 
+  CreditCard, 
+  Lock, 
+  User, 
+  Mail, 
+  Phone, 
+  MapPin, 
+  Check,
   AlertCircle,
-  Phone,
-  Mail,
-  User,
-  Home,
-  Globe,
-  Lock,
-  Info,
-  ShoppingCart
+  Loader
 } from 'lucide-react';
 
-// Import the contexts from your existing code
-import { CartContext, UserDataContext } from './HotelBookingApp';
-
-const CheckoutScreen = ({ onBack, onPaymentSuccess }) => {
-  const { items, getTotalPrice, clearCart } = useContext(CartContext);
-  const { user } = useContext(UserDataContext);
-  
+const CheckoutScreen = ({ items = [], onBack }) => {
+  const [step, setStep] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
-  const [step, setStep] = useState(1); // 1: Billing Info, 2: Payment Processing
+  const [success, setSuccess] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('hblpay');
   
-  // Billing Information State
+  // State for billing information
   const [billingInfo, setBillingInfo] = useState({
-    firstName: user?.fullname?.firstname || '',
-    lastName: user?.fullname?.lastname || '',
-    email: user?.email || '',
+    firstName: '',
+    lastName: '',
+    email: '',
     phone: '',
     address: '',
     city: '',
     state: '',
-    country: 'Pakistan',
-    postalCode: ''
+    postalCode: '',
+    country: 'PK'
   });
 
-  // Payment state
-  const [paymentMethod, setPaymentMethod] = useState('hblpay');
+  // State codes from the Excel file
+  const stateOptions = [
+    { value: 'IS', label: 'Islamabad' },
+    { value: 'BA', label: 'Balochistan' },
+    { value: 'KP', label: 'Khyber Pakhtunkhwa' },
+    { value: 'PB', label: 'Punjab' },
+    { value: 'SD', label: 'Sindh' }
+  ];
 
-  const handleInputChange = (field, value) => {
-    setBillingInfo(prev => ({
-      ...prev,
-      [field]: value
-    }));
-    setError('');
+  // Calculate total price
+  const getTotalPrice = () => {
+    return items.reduce((total, item) => {
+      return total + (item.price * item.quantity);
+    }, 0);
   };
 
+  // Generate unique order ID
+  const generateOrderId = () => {
+    return 'ORD_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+  };
+
+  // Validate billing information
   const validateBillingInfo = () => {
-    const required = ['firstName', 'lastName', 'email', 'phone', 'address', 'city'];
-    for (let field of required) {
-      if (!billingInfo[field]) {
-        setError(`Please fill in ${field.replace(/([A-Z])/g, ' $1').toLowerCase()}`);
-        return false;
-      }
-    }
+    const required = ['firstName', 'lastName', 'email', 'phone', 'address', 'city', 'state'];
+    const missing = required.filter(field => !billingInfo[field]?.trim());
     
+    if (missing.length > 0) {
+      setError(`Please fill in: ${missing.join(', ')}`);
+      return false;
+    }
+
     // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(billingInfo.email)) {
@@ -68,141 +70,121 @@ const CheckoutScreen = ({ onBack, onPaymentSuccess }) => {
       return false;
     }
 
+    // Phone validation (Pakistani format)
+    const phoneRegex = /^(\+92|0)?[0-9]{10}$/;
+    if (!phoneRegex.test(billingInfo.phone.replace(/\s|-/g, ''))) {
+      setError('Please enter a valid Pakistani phone number');
+      return false;
+    }
+
+    setError('');
     return true;
   };
 
-  const generateOrderId = () => {
-    return 'HOTEL_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9).toUpperCase();
+  // Handle input changes
+  const handleInputChange = (field, value) => {
+    setBillingInfo(prev => ({
+      ...prev,
+      [field]: value
+    }));
+    if (error) setError(''); // Clear error on input change
   };
 
-  const generateReferenceNumber = () => {
-    return 'REF_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6).toUpperCase();
-  };
-
+  // Prepare HBLPay data
   const prepareHBLPayData = () => {
     const orderId = generateOrderId();
-    const referenceNumber = generateReferenceNumber();
-    const totalAmount = getTotalPrice();
-
-    // Prepare order items for HBLPay
-    const orderItems = items.map(item => ({
-      ITEM_NAME: item.roomName,
-      QUANTITY: item.quantity.toString(),
-      UNIT_PRICE: item.price.toString(),
-      OLD_PRICE: null,
-      CATEGORY: "Hotel Room",
-      SUB_CATEGORY: item.boardName || "Standard"
-    }));
-
-    const hblPayData = {
-      USER_ID: "your_merchant_id", // Replace with actual merchant ID from HBL
-      PASSWORD: "your_merchant_password", // Replace with actual password from HBL
-      RETURN_URL: `${window.location.origin}/payment-success`,
-      CANCEL_URL: `${window.location.origin}/payment-cancel`,
-      CHANNEL: "HOTEL_WEB",
-      TYPE_ID: "0",
-      ORDER: {
-        DISCOUNT_ON_TOTAL: "0",
-        SUBTOTAL: totalAmount.toString(),
-        OrderSummaryDescription: orderItems
+    const amount = getTotalPrice();
+    
+    return {
+      bookingData: {
+        checkIn: new Date().toISOString().split('T')[0],
+        checkOut: new Date(Date.now() + 86400000).toISOString().split('T')[0], // Next day
+        guests: items.reduce((total, item) => total + item.quantity, 0),
+        items: items.map(item => ({
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price,
+          category: item.category || 'Hotel'
+        }))
       },
-      SHIPPING_DETAIL: {
-        NAME: "Hotel Booking",
-        ICON_PATH: null,
-        DELIEVERY_DAYS: "0",
-        SHIPPING_COST: "0"
+      userData: {
+        firstName: billingInfo.firstName,
+        lastName: billingInfo.lastName,
+        email: billingInfo.email,
+        phone: billingInfo.phone,
+        address: billingInfo.address,
+        city: billingInfo.city,
+        state: billingInfo.state,
+        postalCode: billingInfo.postalCode,
+        country: billingInfo.country
       },
-      ADDITIONAL_DATA: {
-        REFERENCE_NUMBER: referenceNumber,
-        CUSTOMER_ID: user?.email || null,
-        CURRENCY: "PKR",
-        BILL_TO_FORENAME: billingInfo.firstName,
-        BILL_TO_SURNAME: billingInfo.lastName,
-        BILL_TO_EMAIL: billingInfo.email,
-        BILL_TO_PHONE: billingInfo.phone,
-        BILL_TO_ADDRESS_LINE: billingInfo.address,
-        BILL_TO_ADDRESS_CITY: billingInfo.city,
-        BILL_TO_ADDRESS_STATE: billingInfo.state,
-        BILL_TO_ADDRESS_COUNTRY: billingInfo.country,
-        BILL_TO_ADDRESS_POSTAL_CODE: billingInfo.postalCode,
-        SHIP_TO_FORENAME: billingInfo.firstName,
-        SHIP_TO_SURNAME: billingInfo.lastName,
-        SHIP_TO_EMAIL: billingInfo.email,
-        SHIP_TO_PHONE: billingInfo.phone,
-        SHIP_TO_ADDRESS_LINE: billingInfo.address,
-        SHIP_TO_ADDRESS_CITY: billingInfo.city,
-        SHIP_TO_ADDRESS_STATE: billingInfo.state,
-        SHIP_TO_ADDRESS_COUNTRY: billingInfo.country,
-        SHIP_TO_ADDRESS_POSTAL_CODE: billingInfo.postalCode,
-        MerchantFields: {
-          MDD1: "Hotel Booking",
-          MDD2: "Online Payment",
-          MDD3: "Hotel Category",
-          MDD4: items[0]?.roomName || "Hotel Room",
-          MDD5: "Returning Customer",
-          MDD6: "Online Booking",
-          MDD7: items.length.toString(),
-          MDD8: billingInfo.country,
-          MDD9: "0",
-          MDD10: "Online",
-          MDD11: "Complete Journey",
-          MDD12: "Direct Booking",
-          MDD13: items[0]?.hotelName || "Hotel",
-          MDD14: new Date().toISOString().split('T')[0],
-          MDD15: items[0]?.checkIn || new Date().toISOString().split('T')[0],
-          MDD16: items[0]?.checkOut || new Date().toISOString().split('T')[0],
-          MDD17: "Hotel Room",
-          MDD18: user?.email || billingInfo.phone,
-          MDD19: billingInfo.country,
-          MDD20: "Regular Customer"
-        }
-      }
+      amount: amount,
+      currency: 'PKR',
+      orderId: orderId
     };
-
-    return hblPayData;
   };
 
+  // Process payment with improved error handling
   const processPayment = async () => {
     if (!validateBillingInfo()) return;
 
     setIsProcessing(true);
     setError('');
+    setSuccess('');
 
     try {
-      const hblPayData = prepareHBLPayData();
+      const paymentData = prepareHBLPayData();
       
-      // Call your backend API to initiate HBLPay transaction
+      // Get auth token
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('Please login to continue with payment');
+      }
+
+      console.log('Initiating payment with data:', paymentData);
+
+      // Call backend to create payment session
       const response = await fetch(
-        `${import.meta.env.VITE_BASE_URL}/payment/hblpay/initiate`,
+        `${import.meta.env.VITE_BASE_URL}/api/payments/hblpay/initiate`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
+            'Authorization': `Bearer ${token}`
           },
-          body: JSON.stringify(hblPayData)
+          body: JSON.stringify(paymentData)
         }
       );
 
+      console.log('Response status:', response.status);
       const responseData = await response.json();
+      console.log('Response data:', responseData);
 
-      if (responseData && responseData.success && responseData.sessionId) {
-        // Redirect to HBLPay checkout page
-        const hblPayUrl = `https://testpaymentapi.hbl.com/hblpay/site/index.html#/checkout?data=${responseData.sessionId}`;
-        
-        // Store order details in localStorage for post-payment processing
-        localStorage.setItem('pendingOrder', JSON.stringify({
-          items,
-          billingInfo,
-          totalAmount: getTotalPrice(),
-          orderId: generateOrderId(),
+      if (!response.ok) {
+        throw new Error(responseData?.message || `HTTP ${response.status}: Payment initiation failed`);
+      }
+
+      if (responseData.success && responseData.data?.sessionId) {
+        // Store order details for post-payment processing
+        const orderDetails = {
+          ...paymentData,
+          sessionId: responseData.data.sessionId,
+          paymentId: responseData.data.paymentId,
           timestamp: new Date().toISOString()
-        }));
+        };
+        
+        localStorage.setItem('pendingOrder', JSON.stringify(orderDetails));
+        localStorage.setItem('paymentSession', responseData.data.sessionId);
 
-        // Redirect to HBLPay
-        window.location.href = hblPayUrl;
+        setSuccess('Payment session created successfully. Redirecting to HBLPay...');
+        
+        // Redirect to HBLPay after a short delay
+        setTimeout(() => {
+          window.location.href = responseData.data.paymentUrl;
+        }, 2000);
+
       } else {
-        throw new Error(responseData?.message || 'Failed to initiate payment');
+        throw new Error(responseData?.message || 'Failed to create payment session');
       }
     } catch (error) {
       console.error('Payment initiation error:', error);
@@ -212,11 +194,30 @@ const CheckoutScreen = ({ onBack, onPaymentSuccess }) => {
     }
   };
 
+  // Handle proceed to payment
   const handleProceedToPayment = () => {
     if (validateBillingInfo()) {
       setStep(2);
     }
   };
+
+  // Check for payment return
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentStatus = urlParams.get('status');
+    const sessionId = urlParams.get('sessionId');
+    
+    if (paymentStatus && sessionId) {
+      if (paymentStatus === 'success') {
+        setSuccess('Payment completed successfully!');
+        setStep(3); // Success step
+      } else if (paymentStatus === 'failed') {
+        setError('Payment failed. Please try again.');
+      } else if (paymentStatus === 'cancelled') {
+        setError('Payment was cancelled.');
+      }
+    }
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -226,7 +227,7 @@ const CheckoutScreen = ({ onBack, onPaymentSuccess }) => {
           <div className="flex items-center">
             <button
               onClick={onBack}
-              className="flex items-center text-gray-600 hover:text-gray-800 mr-6"
+              className="flex items-center text-gray-600 hover:text-gray-800 mr-6 transition-colors"
             >
               <ArrowLeft className="w-5 h-5 mr-2" />
               Back to Cart
@@ -237,178 +238,203 @@ const CheckoutScreen = ({ onBack, onPaymentSuccess }) => {
           {/* Progress Steps */}
           <div className="flex items-center space-x-4">
             <div className={`flex items-center ${step >= 1 ? 'text-blue-600' : 'text-gray-400'}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step >= 1 ? 'bg-blue-600 text-white' : 'bg-gray-300'}`}>
-                1
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                step >= 1 ? 'bg-blue-600 text-white' : 'bg-gray-200'
+              }`}>
+                {step > 1 ? <Check className="w-4 h-4" /> : '1'}
               </div>
-              <span className="ml-2 font-medium">Billing Info</span>
+              <span className="ml-2 text-sm font-medium">Billing Info</span>
             </div>
-            <div className="w-8 h-px bg-gray-300"></div>
+            <div className="w-8 border-t border-gray-200"></div>
             <div className={`flex items-center ${step >= 2 ? 'text-blue-600' : 'text-gray-400'}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${step >= 2 ? 'bg-blue-600 text-white' : 'bg-gray-300'}`}>
-                2
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                step >= 2 ? 'bg-blue-600 text-white' : 'bg-gray-200'
+              }`}>
+                {step > 2 ? <Check className="w-4 h-4" /> : '2'}
               </div>
-              <span className="ml-2 font-medium">Payment</span>
+              <span className="ml-2 text-sm font-medium">Payment</span>
             </div>
+            {step === 3 && (
+              <>
+                <div className="w-8 border-t border-gray-200"></div>
+                <div className="flex items-center text-green-600">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center bg-green-600 text-white">
+                    <Check className="w-4 h-4" />
+                  </div>
+                  <span className="ml-2 text-sm font-medium">Complete</span>
+                </div>
+              </>
+            )}
           </div>
         </div>
+
+        {/* Error/Success Messages */}
+        {error && (
+          <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center">
+            <AlertCircle className="w-5 h-5 text-red-500 mr-3" />
+            <span className="text-red-700">{error}</span>
+          </div>
+        )}
+
+        {success && (
+          <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4 flex items-center">
+            <Check className="w-5 h-5 text-green-500 mr-3" />
+            <span className="text-green-700">{success}</span>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Main Content */}
           <div className="lg:col-span-2">
             {step === 1 && (
               <div className="bg-white rounded-lg shadow-sm p-6">
-                <h2 className="text-xl font-semibold mb-6">Billing Information</h2>
+                <h2 className="text-xl font-semibold text-gray-900 mb-6">Billing Information</h2>
                 
-                {error && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 flex items-center">
-                    <AlertCircle className="w-5 h-5 text-red-500 mr-3" />
-                    <span className="text-red-700">{error}</span>
-                  </div>
-                )}
-
-                <div className="space-y-6">
-                  {/* Personal Information */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* First Name */}
                   <div>
-                    <h3 className="text-lg font-medium mb-4 flex items-center">
-                      <User className="w-5 h-5 mr-2" />
-                      Personal Information
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          First Name *
-                        </label>
-                        <input
-                          type="text"
-                          value={billingInfo.firstName}
-                          onChange={(e) => handleInputChange('firstName', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="Enter your first name"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Last Name *
-                        </label>
-                        <input
-                          type="text"
-                          value={billingInfo.lastName}
-                          onChange={(e) => handleInputChange('lastName', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="Enter your last name"
-                        />
-                      </div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      First Name *
+                    </label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={billingInfo.firstName}
+                        onChange={(e) => handleInputChange('firstName', e.target.value)}
+                        className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Enter first name"
+                      />
                     </div>
                   </div>
 
-                  {/* Contact Information */}
+                  {/* Last Name */}
                   <div>
-                    <h3 className="text-lg font-medium mb-4 flex items-center">
-                      <Mail className="w-5 h-5 mr-2" />
-                      Contact Information
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Email Address *
-                        </label>
-                        <input
-                          type="email"
-                          value={billingInfo.email}
-                          onChange={(e) => handleInputChange('email', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="Enter your email"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Phone Number *
-                        </label>
-                        <input
-                          type="tel"
-                          value={billingInfo.phone}
-                          onChange={(e) => handleInputChange('phone', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="+92 300 1234567"
-                        />
-                      </div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Last Name *
+                    </label>
+                    <div className="relative">
+                      <User className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={billingInfo.lastName}
+                        onChange={(e) => handleInputChange('lastName', e.target.value)}
+                        className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Enter last name"
+                      />
                     </div>
                   </div>
 
-                  {/* Address Information */}
+                  {/* Email */}
                   <div>
-                    <h3 className="text-lg font-medium mb-4 flex items-center">
-                      <Home className="w-5 h-5 mr-2" />
-                      Address Information
-                    </h3>
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Street Address *
-                        </label>
-                        <input
-                          type="text"
-                          value={billingInfo.address}
-                          onChange={(e) => handleInputChange('address', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="Enter your street address"
-                        />
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            City *
-                          </label>
-                          <input
-                            type="text"
-                            value={billingInfo.city}
-                            onChange={(e) => handleInputChange('city', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="City"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            State/Province
-                          </label>
-                          <input
-                            type="text"
-                            value={billingInfo.state}
-                            onChange={(e) => handleInputChange('state', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="State"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Postal Code
-                          </label>
-                          <input
-                            type="text"
-                            value={billingInfo.postalCode}
-                            onChange={(e) => handleInputChange('postalCode', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="12345"
-                          />
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Country
-                        </label>
-                        <select
-                          value={billingInfo.country}
-                          onChange={(e) => handleInputChange('country', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          <option value="Pakistan">Pakistan</option>
-                          <option value="India">India</option>
-                          <option value="Bangladesh">Bangladesh</option>
-                          <option value="UAE">UAE</option>
-                          <option value="Saudi Arabia">Saudi Arabia</option>
-                        </select>
-                      </div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Email Address *
+                    </label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                      <input
+                        type="email"
+                        value={billingInfo.email}
+                        onChange={(e) => handleInputChange('email', e.target.value)}
+                        className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Enter email address"
+                      />
                     </div>
+                  </div>
+
+                  {/* Phone */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Phone Number *
+                    </label>
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                      <input
+                        type="tel"
+                        value={billingInfo.phone}
+                        onChange={(e) => handleInputChange('phone', e.target.value)}
+                        className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="+92 300 1234567"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Address */}
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Address *
+                    </label>
+                    <div className="relative">
+                      <MapPin className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={billingInfo.address}
+                        onChange={(e) => handleInputChange('address', e.target.value)}
+                        className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="Enter your address"
+                      />
+                    </div>
+                  </div>
+
+                  {/* City */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      City *
+                    </label>
+                    <input
+                      type="text"
+                      value={billingInfo.city}
+                      onChange={(e) => handleInputChange('city', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Enter city"
+                    />
+                  </div>
+
+                  {/* State */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      State/Province *
+                    </label>
+                    <select
+                      value={billingInfo.state}
+                      onChange={(e) => handleInputChange('state', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="">Select state</option>
+                      {stateOptions.map(state => (
+                        <option key={state.value} value={state.value}>
+                          {state.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Postal Code */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Postal Code
+                    </label>
+                    <input
+                      type="text"
+                      value={billingInfo.postalCode}
+                      onChange={(e) => handleInputChange('postalCode', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Enter postal code"
+                    />
+                  </div>
+
+                  {/* Country */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Country
+                    </label>
+                    <select
+                      value={billingInfo.country}
+                      onChange={(e) => handleInputChange('country', e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="PK">Pakistan</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -416,62 +442,71 @@ const CheckoutScreen = ({ onBack, onPaymentSuccess }) => {
 
             {step === 2 && (
               <div className="bg-white rounded-lg shadow-sm p-6">
-                <h2 className="text-xl font-semibold mb-6">Payment Method</h2>
+                <h2 className="text-xl font-semibold text-gray-900 mb-6">Payment Method</h2>
                 
-                {error && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 flex items-center">
-                    <AlertCircle className="w-5 h-5 text-red-500 mr-3" />
-                    <span className="text-red-700">{error}</span>
-                  </div>
-                )}
-
-                <div className="space-y-4">
-                  {/* HBLPay Option */}
-                  <div className={`border-2 rounded-lg p-4 cursor-pointer transition-colors ${
-                    paymentMethod === 'hblpay' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
-                  }`}>
-                    <div className="flex items-center">
-                      <input
-                        type="radio"
-                        id="hblpay"
-                        name="paymentMethod"
-                        value="hblpay"
-                        checked={paymentMethod === 'hblpay'}
-                        onChange={(e) => setPaymentMethod(e.target.value)}
-                        className="mr-3"
-                      />
-                      <div className="flex-1">
-                        <div className="flex items-center">
-                          <CreditCard className="w-5 h-5 mr-2 text-blue-600" />
-                          <span className="font-medium">HBL Pay</span>
-                        </div>
-                        <p className="text-sm text-gray-600 mt-1">
-                          Pay securely with Visa, Mastercard, UnionPay, or HBL Account
-                        </p>
-                        <div className="flex items-center mt-2 space-x-2">
-                          <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Visa</span>
-                          <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Mastercard</span>
-                          <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">UnionPay</span>
-                          <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">HBL Account</span>
-                        </div>
+                {/* HBLPay Option */}
+                <div className={`border-2 rounded-lg p-4 cursor-pointer transition-colors ${
+                  paymentMethod === 'hblpay' ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+                }`}>
+                  <div className="flex items-center">
+                    <input
+                      type="radio"
+                      id="hblpay"
+                      name="paymentMethod"
+                      value="hblpay"
+                      checked={paymentMethod === 'hblpay'}
+                      onChange={(e) => setPaymentMethod(e.target.value)}
+                      className="mr-3 text-blue-600"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center">
+                        <CreditCard className="w-5 h-5 mr-2 text-blue-600" />
+                        <span className="font-medium">HBL Pay</span>
                       </div>
-                      <Lock className="w-5 h-5 text-gray-400" />
+                      <p className="text-sm text-gray-600 mt-1">
+                        Pay securely with Visa, Mastercard, UnionPay, or HBL Account
+                      </p>
+                      <div className="flex items-center mt-2 space-x-2">
+                        <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Visa</span>
+                        <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">Mastercard</span>
+                        <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">UnionPay</span>
+                        <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">HBL Account</span>
+                      </div>
                     </div>
+                    <Lock className="w-5 h-5 text-gray-400" />
                   </div>
+                </div>
 
-                  {/* Security Notice */}
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                    <div className="flex items-start">
-                      <Lock className="w-5 h-5 text-gray-500 mr-3 mt-0.5" />
-                      <div>
-                        <h4 className="font-medium text-gray-900">Secure Payment</h4>
-                        <p className="text-sm text-gray-600 mt-1">
-                          Your payment information is encrypted and secure. We never store your card details.
-                        </p>
-                      </div>
+                {/* Security Notice */}
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mt-4">
+                  <div className="flex items-start">
+                    <Lock className="w-5 h-5 text-gray-500 mr-3 mt-0.5" />
+                    <div>
+                      <h4 className="font-medium text-gray-900">Secure Payment</h4>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Your payment information is encrypted and secure. We never store your card details.
+                      </p>
                     </div>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {step === 3 && (
+              <div className="bg-white rounded-lg shadow-sm p-6 text-center">
+                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Check className="w-8 h-8 text-green-600" />
+                </div>
+                <h2 className="text-2xl font-semibold text-gray-900 mb-2">Payment Successful!</h2>
+                <p className="text-gray-600 mb-6">
+                  Thank you for your payment. Your booking has been confirmed.
+                </p>
+                <button
+                  onClick={() => window.location.href = '/'}
+                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Return to Home
+                </button>
               </div>
             )}
           </div>
@@ -479,36 +514,21 @@ const CheckoutScreen = ({ onBack, onPaymentSuccess }) => {
           {/* Order Summary Sidebar */}
           <div className="lg:col-span-1">
             <div className="bg-white rounded-lg shadow-sm p-6 sticky top-8">
-              <h3 className="text-lg font-semibold mb-4 flex items-center">
-                <ShoppingCart className="w-5 h-5 mr-2" />
-                Order Summary
-              </h3>
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Summary</h3>
               
-              <div className="space-y-4 mb-6">
-                {items.map((item) => (
-                  <div key={`${item.id}-${item.checkIn}-${item.checkOut}`} className="border-b border-gray-200 pb-4">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <h4 className="font-medium text-sm">{item.roomName}</h4>
-                        <p className="text-sm text-gray-600">{item.hotelName}</p>
-                        <div className="flex items-center text-xs text-gray-500 mt-1">
-                          <MapPin className="w-3 h-3 mr-1" />
-                          {item.location}
-                        </div>
-                        <div className="flex items-center text-xs text-gray-500 mt-1">
-                          <Calendar className="w-3 h-3 mr-1" />
-                          {new Date(item.checkIn).toLocaleDateString()} - {new Date(item.checkOut).toLocaleDateString()}
-                        </div>
-                        <div className="flex items-center text-xs text-gray-500 mt-1">
-                          <Users className="w-3 h-3 mr-1" />
-                          {item.guests} guest(s)
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-medium">€{(item.price * item.quantity).toFixed(2)}</p>
-                        <p className="text-sm text-gray-500">Qty: {item.quantity}</p>
-                      </div>
+              {/* Items */}
+              <div className="space-y-3 mb-4">
+                {items.map((item, index) => (
+                  <div key={index} className="flex justify-between items-center">
+                    <div className="flex-1">
+                      <h4 className="font-medium text-gray-900">{item.name}</h4>
+                      <p className="text-sm text-gray-600">
+                        Qty: {item.quantity} × PKR {item.price.toFixed(2)}
+                      </p>
                     </div>
+                    <span className="font-medium">
+                      PKR {(item.price * item.quantity).toFixed(2)}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -517,15 +537,15 @@ const CheckoutScreen = ({ onBack, onPaymentSuccess }) => {
               <div className="border-t border-gray-200 pt-4">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-gray-600">Subtotal:</span>
-                  <span className="font-medium">€{getTotalPrice().toFixed(2)}</span>
+                  <span className="font-medium">PKR {getTotalPrice().toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-gray-600">Taxes & Fees:</span>
-                  <span className="font-medium">€0.00</span>
+                  <span className="font-medium">PKR 0.00</span>
                 </div>
                 <div className="flex justify-between items-center text-lg font-bold border-t border-gray-200 pt-2">
                   <span>Total:</span>
-                  <span className="text-blue-600">€{getTotalPrice().toFixed(2)}</span>
+                  <span className="text-blue-600">PKR {getTotalPrice().toFixed(2)}</span>
                 </div>
               </div>
 
@@ -538,7 +558,7 @@ const CheckoutScreen = ({ onBack, onPaymentSuccess }) => {
                   >
                     Proceed to Payment
                   </button>
-                ) : (
+                ) : step === 2 ? (
                   <button
                     onClick={processPayment}
                     disabled={isProcessing}
@@ -546,7 +566,7 @@ const CheckoutScreen = ({ onBack, onPaymentSuccess }) => {
                   >
                     {isProcessing ? (
                       <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        <Loader className="animate-spin w-4 h-4 mr-2" />
                         Processing...
                       </>
                     ) : (
@@ -556,7 +576,7 @@ const CheckoutScreen = ({ onBack, onPaymentSuccess }) => {
                       </>
                     )}
                   </button>
-                )}
+                ) : null}
               </div>
 
               {/* Security Notice */}

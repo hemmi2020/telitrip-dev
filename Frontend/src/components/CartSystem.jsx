@@ -77,28 +77,28 @@ const UserProvider = ({ children }) => {
   }, []);
 
   // Update user and persist to localStorage
-  const updateUser = (userData) => {
-    setUser(userData);
-    if (userData && userData.email) {
-      localStorage.setItem("userData", JSON.stringify(userData));
-    } else {
-      localStorage.removeItem("userData");
-      localStorage.removeItem("token");
-    }
-  };
+  // const updateUser = (userData) => {
+  //   setUser(userData);
+  //   if (userData && userData.email) {
+  //     localStorage.setItem("userData", JSON.stringify(userData));
+  //   } else {
+  //     localStorage.removeItem("userData");
+  //     localStorage.removeItem("token");
+  //   }
+  // };
 
   // Logout function
-  const logout = () => {
-    setUser({
-      email: "",
-      fullname: {
-        firstname: "",
-        lastname: "",
-      },
-    });
-    localStorage.removeItem("token");
-    localStorage.removeItem("userData");
-  };
+  // const logout = () => {
+  //   setUser({
+  //     email: "",
+  //     fullname: {
+  //       firstname: "",
+  //       lastname: "",
+  //     },
+  //   });
+  //   localStorage.removeItem("token");
+  //   localStorage.removeItem("userData");
+  // };
 
   // If you don't have a profile endpoint, use this simpler version:
 
