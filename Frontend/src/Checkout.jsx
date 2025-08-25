@@ -27,7 +27,25 @@ import {
 const Checkout = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { cartItems, getTotalPrice, clearCart } = useCart();
+  
+  // Safe cart context usage with fallbacks
+  let cartItems = [];
+  let getTotalPrice = () => 0;
+  let clearCart = () => {};
+  
+  try {
+    const cartContext = useCart();
+    if (cartContext) {
+      cartItems = cartContext.cartItems || [];
+      getTotalPrice = cartContext.getTotalPrice || (() => 0);
+      clearCart = cartContext.clearCart || (() => {});
+    }
+  } catch (error) {
+    console.warn('Cart context not available:', error);
+    // Use location state as fallback
+    cartItems = location.state?.cartItems || [];
+    getTotalPrice = () => location.state?.totalAmount || 0;
+  }
   
   const [step, setStep] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -37,7 +55,7 @@ const Checkout = () => {
   
   // Get booking data from navigation state or cart
   const bookingData = location.state?.bookingData || null;
-  const totalAmount = location.state?.totalAmount || getTotalPrice();
+  const totalAmount = location.state?.totalAmount || (getTotalPrice ? getTotalPrice() : 0);
   
   // User authentication
   const [user, setUser] = useState(null);
@@ -266,7 +284,7 @@ const Checkout = () => {
       // Step 1: Create booking first if we don't have a bookingId
       let createdBookingId = bookingData?.bookingId || bookingData?.id;
       
-      if (!createdBookingId && cartItems.length > 0) {
+      if (!createdBookingId && cartItems && cartItems.length > 0) {
         // Create booking from cart items
         const firstItem = cartItems[0]; // Assuming single hotel booking
         
@@ -316,7 +334,7 @@ const Checkout = () => {
       const paymentData = {
         bookingData: {
           ...bookingData,
-          items: cartItems.length > 0 ? cartItems : bookingData?.items || [],
+          items: (cartItems && cartItems.length > 0) ? cartItems : (bookingData?.items || []),
           bookingId: createdBookingId
         },
         userData: {
@@ -381,7 +399,7 @@ const Checkout = () => {
 
   // Redirect to checkout with cart data
   const handleProceedToCheckout = () => {
-    if (cartItems.length === 0) {
+    if (!cartItems || cartItems.length === 0) {
       setError('Your cart is empty. Please add items before checkout.');
       return;
     }
@@ -389,13 +407,13 @@ const Checkout = () => {
     navigate('/checkout', {
       state: {
         cartItems: cartItems,
-        totalAmount: getTotalPrice()
+        totalAmount: getTotalPrice ? getTotalPrice() : 0
       }
     });
   };
 
   // If no booking data and no cart items, show empty state
-  if (!bookingData && cartItems.length === 0) {
+  if (!bookingData && (!cartItems || cartItems.length === 0)) {
     return (
       <div className="min-h-screen bg-gray-50 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -727,10 +745,10 @@ const Checkout = () => {
       <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Summary</h3>
       
       {/* Items */}
-      {(cartItems.length > 0 ? cartItems : bookingData?.items || []).map((item, index) => (
+      {cartItems && cartItems.length > 0 ? cartItems.map((item, index) => (
         <div key={index} className="flex justify-between items-start mb-4 pb-4 border-b border-gray-200 last:border-b-0">
           <div className="flex-1">
-            <h4 className="font-medium text-gray-900">{item.hotelName || item.name}</h4>
+            <h4 className="font-medium text-gray-900">{item.hotelName || item.name || 'Hotel Room'}</h4>
             {item.roomName && (
               <p className="text-sm text-gray-600">{item.roomName}</p>
             )}
@@ -746,19 +764,29 @@ const Checkout = () => {
                 {item.guests} guests
               </div>
             )}
+            {item.location && (
+              <div className="flex items-center text-xs text-gray-500">
+                <Star className="w-3 h-3 mr-1" />
+                {item.location}
+              </div>
+            )}
           </div>
           <div className="text-right">
             <p className="font-semibold text-gray-900">
-              Rs. {(item.price * (item.quantity || 1)).toLocaleString()}
+              €{(item.price * (item.quantity || 1)).toLocaleString()}
             </p>
             {item.quantity > 1 && (
               <p className="text-xs text-gray-500">
-                Rs. {item.price.toLocaleString()} × {item.quantity}
+                €{item.price.toLocaleString()} × {item.quantity}
               </p>
             )}
           </div>
         </div>
-      ))}
+      )) : (
+        <div className="text-center py-8">
+          <p className="text-gray-500">No items in cart</p>
+        </div>
+      )}
 
       {/* Total */}
       <div className="pt-4 border-t border-gray-200">

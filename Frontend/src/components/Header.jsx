@@ -9,7 +9,7 @@ const Header = () => {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const { user, setUser } = useContext(UserDataContext); // Add setUser for logout
-  const { getTotalItems } = useCart(); // Add this to get cart count
+  const { getTotalItems, items: cartItems, getTotalPrice } = useCart(); // ✅ FIXED: Get 'items' as 'cartItems'
   
   const handleAccountClick = () => {
     if (user && user.email) {
@@ -33,13 +33,32 @@ const Header = () => {
     navigate('/home');
   };
 
-  const handleProceedToCheckout = () => {
-    console.log('🛒 Proceeding to checkout from header...');
-    setIsCartOpen(false);
-    
-    // Navigate to checkout page instead of conditional rendering
-    navigate('/checkout');
-  };
+// ✅ FIXED: Properly pass cart data to checkout
+// ✅ FIXED VERSION
+const handleProceedToCheckout = () => {
+  console.log('🛒 Proceeding to checkout from header...');
+  
+  const { items, getTotalPrice } = useCart(); // Get cart data
+  console.log('📦 Cart items:', items);
+  console.log('💰 Total price:', getTotalPrice());
+  
+  setIsCartOpen(false);
+  
+  // Check if cart has items
+  if (!items || items.length === 0) {
+    console.warn('⚠️ Cart is empty, cannot proceed to checkout');
+    return;
+  }
+  
+  // Navigate to checkout page with cart data
+  navigate('/checkout', {
+    state: {
+      cartItems: items,  // ✅ Pass the items array
+      totalAmount: getTotalPrice(),
+      fromCart: true
+    }
+  });
+};
 
   return (
     <>
@@ -128,7 +147,7 @@ const Header = () => {
                   <span className="hidden md:block">Cart</span>
                   
                   {/* Cart Item Count Badge */}
-                  {getTotalItems() > 0 && (
+                  {getTotalItems && getTotalItems() > 0 && (
                     <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
                       {getTotalItems()}
                     </span>
