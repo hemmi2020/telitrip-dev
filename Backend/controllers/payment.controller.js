@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const fetch = require('node-fetch');
-const paymentModel = require('../models/payment.model').default; 
+const paymentModel = require('../models/payment.model'); // ✅ CORRECT
 const bookingModel = require('../models/booking.model');
 const ApiResponse = require('../utils/response.util');
 const { asyncErrorHandler } = require('../middlewares/errorHandler.middleware');
@@ -69,9 +69,11 @@ function encryptSensitiveData(data) {
   }
 }
 
-// Generate unique payment ID
+// ✅ IMPROVED PAYMENT ID GENERATION FUNCTION
 const generatePaymentId = () => {
-  return 'PAY_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9).toUpperCase();
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+  return `PAY_${timestamp}_${random}`;
 };
 
 // Generate unique order ID
@@ -100,7 +102,7 @@ const buildHBLPayRequest = (paymentData, userId) => {
   // Build main request object
   const hblRequest = {
     USER_ID: HBLPAY_USER_ID,
-    PASSWORD: HBLPAY_PASSWORD,
+    PASSWORD: encryptSensitiveData(HBLPAY_PASSWORD),
     CHANNEL: HBL_CHANNEL,
     TYPE_ID: HBL_TYPE_ID,
     RETURN_URL: returnUrl,
@@ -225,7 +227,7 @@ const buildRedirectUrl = (sessionId) => {
 
 // Create HBLPay payment session
 module.exports.initiateHBLPayPayment = asyncErrorHandler(async (req, res) => {
-  const { bookingData, userData, amount, currency = 'PKR', orderId } = req.body;
+  const { bookingData, userData, amount, currency = 'PKR', orderId, bookingId } = req.body;
   const userId = req.user._id;
 
   console.log('🚀 Initiating HBLPay payment:', {
@@ -233,10 +235,11 @@ module.exports.initiateHBLPayPayment = asyncErrorHandler(async (req, res) => {
     amount,
     currency,
     orderId: orderId || 'auto-generated',
+    bookingId, // ✅ Log the bookingId
     userEmail: userData?.email
   });
 
-  // Validation
+  // ✅ ENHANCED VALIDATION
   if (!amount || amount <= 0) {
     return ApiResponse.error(res, 'Invalid payment amount', 400);
   }
@@ -249,15 +252,48 @@ module.exports.initiateHBLPayPayment = asyncErrorHandler(async (req, res) => {
     return ApiResponse.error(res, 'Invalid booking data - items required', 400);
   }
 
+  // 🔥 ADD BOOKING VALIDATION
+  if (!bookingId) {
+    return ApiResponse.error(res, 'Booking ID is required for payment processing', 400);
+  }
+
+  // Verify booking exists and belongs to user
+  let bookingRecord = null;
+  if (bookingId) {
+    try {
+      bookingRecord = await bookingModel.findOne({
+        $or: [
+          { _id: bookingId },
+          { bookingId: bookingId }
+        ],
+        userId: userId
+      });
+
+      if (!bookingRecord) {
+        return ApiResponse.error(res, 'Booking not found or does not belong to user', 404);
+      }
+
+      if (bookingRecord.paymentStatus === 'paid') {
+        return ApiResponse.error(res, 'This booking is already paid', 400);
+      }
+    } catch (error) {
+      console.error('Error validating booking:', error);
+      return ApiResponse.error(res, 'Invalid booking ID format', 400);
+    }
+  }
+
   try {
     // Generate order ID if not provided
     const finalOrderId = orderId || generateOrderId();
-    const paymentId = generatePaymentId();
+    
+    // ✅ IMPROVED PAYMENT ID GENERATION (ensure it matches your schema validation)
+    const paymentId = `PAY_${Date.now()}_${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
-    // Create payment record
+    // ✅ FIXED: Create payment record with bookingId
     const payment = new paymentModel({
       paymentId,
       userId,
+      bookingId: bookingRecord?._id, // ✅ Include the booking ID
       amount,
       currency,
       status: 'pending',
@@ -311,7 +347,8 @@ module.exports.initiateHBLPayPayment = asyncErrorHandler(async (req, res) => {
     console.log('✅ Payment session created successfully:', {
       paymentId,
       sessionId: hblResponse.SESSION_ID,
-      paymentUrl
+      paymentUrl,
+      bookingId: bookingRecord?._id
     });
 
     return ApiResponse.success(res, {
@@ -321,7 +358,8 @@ module.exports.initiateHBLPayPayment = asyncErrorHandler(async (req, res) => {
       orderId: finalOrderId,
       amount,
       currency,
-      expiresAt: payment.expiresAt
+      expiresAt: payment.expiresAt,
+      bookingId: bookingRecord?._id
     }, 'Payment session created successfully');
 
   } catch (error) {
@@ -329,6 +367,7 @@ module.exports.initiateHBLPayPayment = asyncErrorHandler(async (req, res) => {
     return ApiResponse.error(res, error.message || 'Failed to initiate payment', 500);
   }
 });
+
 
 // Handle payment return/callback
 module.exports.handlePaymentReturn = asyncErrorHandler(async (req, res) => {

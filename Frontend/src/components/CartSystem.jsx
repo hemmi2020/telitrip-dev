@@ -305,7 +305,7 @@ const AuthModal = ({
   const [error, setError] = useState("");
 
   const { setUser } = useContext(UserDataContext);
-  const navigate = useNavigate();
+  // const navigate = useNavigate();
 
   // Form states
   const [loginData, setLoginData] = useState({ email: "", password: "" });
@@ -744,7 +744,7 @@ export { AuthModal };
 
 // Enhanced Slide-out Cart Component with Authentication
 const SlideOutCart = ({ isOpen, onClose, onProceedToCheckout }) => {
-  const { items, removeFromCart, updateQuantity, clearCart, getTotalPrice } =
+  const { items, removeFromCart, updateQuantity, getTotalPrice } =
     useCart();
   const { user } = useContext(UserDataContext);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -814,7 +814,7 @@ const SlideOutCart = ({ isOpen, onClose, onProceedToCheckout }) => {
               </div>
             ) : (
               <div className="p-4 space-y-4">
-                {items.map((item, index) => (
+                {items.map((item) => (
                   <div
                     key={`${item.id}-${item.checkIn}-${item.checkOut}`}
                     className="border rounded-lg p-3"

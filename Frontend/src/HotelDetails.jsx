@@ -308,7 +308,7 @@ const HotelDetails = () => {
               body: JSON.stringify(requestBody),
             });
           }
-        } catch (authError) {
+        } catch  {
           hotelResponse = await fetch(`${API_BASE_URL}/hotels/search`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -380,7 +380,7 @@ const HotelDetails = () => {
       } else {
         navigate("/home");
       }
-    } catch (error) {
+    } catch {
       navigate("/home");
     }
   };

@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const paymentModel = require('../models/payment.model').default;
+const paymentModel = require('../models/payment.model');
 const bookingModel = require('../models/booking.model');
 
 class PaymentService {

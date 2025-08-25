@@ -1,7 +1,7 @@
 import React, { useState, useContext } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import logo from "../images/Telitrip-Logo-1.png";
-import { CartIcon, SlideOutCart, AuthModal } from './CartSystem';
+import { CartIcon, SlideOutCart, AuthModal, useCart } from './CartSystem';
 import { UserDataContext } from './CartSystem';
 
 const Header = () => {
@@ -9,9 +9,10 @@ const Header = () => {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const { user, setUser } = useContext(UserDataContext); // Add setUser for logout
+  const { getTotalItems } = useCart(); // Add this to get cart count
   
   const handleAccountClick = () => {
-    if (!user) {
+    if (user && user.email) {
       navigate("/account");
     } else {
       setShowAuthModal(true);
@@ -21,6 +22,7 @@ const Header = () => {
   const handleAuthSuccess = (userData) => {
     console.log('User authenticated:', userData);
     setShowAuthModal(false);
+    navigate("/account"); // Navigate to account after login
   };
 
   // Add logout function
@@ -31,12 +33,12 @@ const Header = () => {
     navigate('/home');
   };
 
-  // Add checkout handler
   const handleProceedToCheckout = () => {
-    console.log('Proceeding to checkout...');
+    console.log('🛒 Proceeding to checkout from header...');
     setIsCartOpen(false);
-    // Add your checkout navigation logic here
-    // navigate('/checkout');
+    
+    // Navigate to checkout page instead of conditional rendering
+    navigate('/checkout');
   };
 
   return (
@@ -77,44 +79,70 @@ const Header = () => {
             <div className="flex font-bold items-center space-x-8">
               <div className="flex items-center space-x-4">
                 {user && user.email ? (
-                  <div className="flex items-center space-x-2">
-                    <span 
-  onClick={() => navigate("/account")} 
-  className="text-sm text-gray-600 hover:text-blue-600 hover:font-bold hover:underline cursor-pointer transition-all duration-200"
->
-  👤My Account
-   {/* {user.fullname?.firstname || user.email} */}
-</span>
+                  // Logged in user menu
+                  <div className="flex items-center space-x-4">
+                    <span className="text-gray-700">
+                      Welcome, {user.fullname?.firstname || user.email}
+                    </span>
+                    <button
+                      onClick={handleAccountClick}
+                      className="text-gray-700 hover:text-blue-600 transition-colors"
+                    >
+                      Account
+                    </button>
                     <button
                       onClick={handleLogout}
-                      className="text-sm text-red-600 hover:text-red-700 hover:underline"
+                      className="text-gray-700 hover:text-red-600 transition-colors"
                     >
                       Logout
                     </button>
                   </div>
                 ) : (
+                  // Guest user
                   <button
                     onClick={handleAccountClick}
-                    className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 focus:outline-none"
-                    title="Account"
+                    className="text-gray-700 hover:text-blue-600 transition-colors"
                   >
-                    <span>👤 Login</span>
+                    Login / Sign Up
                   </button>
                 )}
-              </div>
 
-              <div className="flex items-center space-x-2">
-                <CartIcon onClick={() => setIsCartOpen(true)} />
-                <span className="text-gray-700">Cart</span>
+                {/* ENHANCED: Cart Icon with proper item count */}
+                <button
+                  onClick={() => setIsCartOpen(true)}
+                  className="relative p-2 text-gray-700 hover:text-blue-600 transition-colors flex items-center space-x-2"
+                >
+                  <svg 
+                    className="w-6 h-6" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path 
+                      strokeLinecap="round" 
+                      strokeLinejoin="round" 
+                      strokeWidth={2} 
+                      d="M3 3h2l.4 2M7 13h10l4-8H5.4m0 0L7 13m0 0l-1.5 6M7 13l-1.5 6m0 0h12" 
+                    />
+                  </svg>
+                  <span className="hidden md:block">Cart</span>
+                  
+                  {/* Cart Item Count Badge */}
+                  {getTotalItems() > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                      {getTotalItems()}
+                    </span>
+                  )}
+                </button>
               </div>
             </div>
           </div>
         </div>
       </header>
 
-      {/* Slide-out Cart with checkout handler */}
-      <SlideOutCart 
-        isOpen={isCartOpen} 
+      {/* ENHANCED: Cart Slide-out with checkout integration */}
+      <SlideOutCart
+        isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}
         onProceedToCheckout={handleProceedToCheckout}
       />
