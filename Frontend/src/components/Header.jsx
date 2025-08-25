@@ -1,15 +1,16 @@
+// Fixed Header.jsx - Complete working version
 import React, { useState, useContext } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import logo from "../images/Telitrip-Logo-1.png";
-import { CartIcon, SlideOutCart, AuthModal, useCart } from './CartSystem';
+import { SlideOutCart, AuthModal, useCart } from './CartSystem';
 import { UserDataContext } from './CartSystem';
 
 const Header = () => {
   const navigate = useNavigate();
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const { user, setUser } = useContext(UserDataContext); // Add setUser for logout
-  const { getTotalItems, items: cartItems, getTotalPrice } = useCart(); // ✅ FIXED: Get 'items' as 'cartItems'
+  const { user, setUser } = useContext(UserDataContext);
+  const { getTotalItems } = useCart();
   
   const handleAccountClick = () => {
     if (user && user.email) {
@@ -22,43 +23,41 @@ const Header = () => {
   const handleAuthSuccess = (userData) => {
     console.log('User authenticated:', userData);
     setShowAuthModal(false);
-    navigate("/account"); // Navigate to account after login
+    navigate("/account");
   };
 
-  // Add logout function
   const handleLogout = () => {
-    setUser({email: "", fullname: { firstname: "", lastname: "" }});
+    setUser(null);
     localStorage.removeItem('token');
     localStorage.removeItem('userData');
     navigate('/home');
   };
 
-// ✅ FIXED: Properly pass cart data to checkout
-// ✅ FIXED VERSION
-const handleProceedToCheckout = () => {
-  console.log('🛒 Proceeding to checkout from header...');
-  
-  const { items, getTotalPrice } = useCart(); // Get cart data
-  console.log('📦 Cart items:', items);
-  console.log('💰 Total price:', getTotalPrice());
-  
-  setIsCartOpen(false);
-  
-  // Check if cart has items
-  if (!items || items.length === 0) {
-    console.warn('⚠️ Cart is empty, cannot proceed to checkout');
-    return;
-  }
-  
-  // Navigate to checkout page with cart data
-  navigate('/checkout', {
-    state: {
-      cartItems: items,  // ✅ Pass the items array
-      totalAmount: getTotalPrice(),
-      fromCart: true
+  // FIXED: Properly pass cart data to checkout
+  const handleProceedToCheckout = () => {
+    console.log('🛒 Proceeding to checkout from header...');
+    
+    const { items, getTotalPrice } = useCart();
+    console.log('📦 Cart items:', items);
+    console.log('💰 Total price:', getTotalPrice());
+    
+    setIsCartOpen(false);
+    
+    // Check if cart has items
+    if (!items || items.length === 0) {
+      console.warn('⚠️ Cart is empty, cannot proceed to checkout');
+      return;
     }
-  });
-};
+    
+    // Navigate to checkout page with cart data
+    navigate('/checkout', {
+      state: {
+        cartItems: items,
+        totalAmount: getTotalPrice(),
+        fromCart: true
+      }
+    });
+  };
 
   return (
     <>
@@ -126,7 +125,7 @@ const handleProceedToCheckout = () => {
                   </button>
                 )}
 
-                {/* ENHANCED: Cart Icon with proper item count */}
+                {/* FIXED: Cart Icon with proper item count */}
                 <button
                   onClick={() => setIsCartOpen(true)}
                   className="relative p-2 text-gray-700 hover:text-blue-600 transition-colors flex items-center space-x-2"
@@ -147,7 +146,7 @@ const handleProceedToCheckout = () => {
                   <span className="hidden md:block">Cart</span>
                   
                   {/* Cart Item Count Badge */}
-                  {getTotalItems && getTotalItems() > 0 && (
+                  {getTotalItems() > 0 && (
                     <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
                       {getTotalItems()}
                     </span>
@@ -159,7 +158,7 @@ const handleProceedToCheckout = () => {
         </div>
       </header>
 
-      {/* ENHANCED: Cart Slide-out with checkout integration */}
+      {/* FIXED: Cart Slide-out with checkout integration */}
       <SlideOutCart
         isOpen={isCartOpen}
         onClose={() => setIsCartOpen(false)}

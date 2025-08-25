@@ -1,49 +1,16 @@
-// COMPLETE WORKING CartSystem.jsx - Copy this and replace your file
-
-import React, {
-  createContext,
-  useContext,
-  useReducer,
-  useState,
-  useEffect,
-} from "react";
-import {
-  X,
-  ShoppingCart,
-  Plus,
-  Minus,
-  Calendar,
-  Users,
-  MapPin,
-  Star,
-  Trash2,
-  ArrowRight,
-  CreditCard,
-  Tag,
-  Info,
-  User,
-  Lock,
-  Mail,
-  Eye,
-  EyeOff,
-} from "lucide-react";
+// Fixed CartSystem.jsx - Complete working version
+import React, { createContext, useContext, useReducer, useEffect, useState } from "react";
+import { X, ShoppingCart, MapPin, Calendar, Trash2, User, Eye, EyeOff } from "lucide-react";
 import axios from "axios";
-import { useNavigate } from "react-router-dom";
 
-// UserDataContext
-const UserDataContext = createContext();
+// User Data Context
+export const UserDataContext = createContext();
 
-const UserProvider = ({ children }) => {
+// User Provider with proper authentication check
+export const UserProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [user, setUser] = useState({
-    email: "",
-    fullname: {
-      firstname: "",
-      lastname: "",
-    },
-  });
 
-  // Check for existing authentication on component mount
   useEffect(() => {
     const checkAuthStatus = async () => {
       try {
@@ -59,7 +26,6 @@ const UserProvider = ({ children }) => {
           try {
             const parsedUserData = JSON.parse(userData);
 
-            // Verify the user data is valid
             if (parsedUserData && parsedUserData.email) {
               console.log("✅ Found valid stored auth:", parsedUserData.email);
               setUser(parsedUserData);
@@ -103,8 +69,6 @@ const UserProvider = ({ children }) => {
     </UserDataContext.Provider>
   );
 };
-
-export { UserProvider, UserDataContext };
 
 // Cart Context
 export const CartContext = createContext();
@@ -252,7 +216,7 @@ export const useCart = () => {
 };
 
 // Cart Icon Component for Header
-const CartIcon = ({ onClick }) => {
+export const CartIcon = ({ onClick }) => {
   const { getTotalItems } = useCart();
   const itemCount = getTotalItems();
 
@@ -270,7 +234,6 @@ const CartIcon = ({ onClick }) => {
     </button>
   );
 };
-export { CartIcon };
 
 // Rate class badge helper
 const getRateClassBadge = (rateClass) => {
@@ -293,7 +256,7 @@ const getRateClassBadge = (rateClass) => {
 };
 
 // FIXED AuthModal Component
-const AuthModal = ({
+export const AuthModal = ({
   isOpen,
   onClose,
   onAuthSuccess,
@@ -305,7 +268,6 @@ const AuthModal = ({
   const [error, setError] = useState("");
 
   const { setUser } = useContext(UserDataContext);
-  // const navigate = useNavigate();
 
   // Form states
   const [loginData, setLoginData] = useState({ email: "", password: "" });
@@ -315,6 +277,15 @@ const AuthModal = ({
     email: "",
     password: "",
   });
+
+  // Reset form when modal opens/closes
+  useEffect(() => {
+    if (isOpen) {
+      setError("");
+      setLoginData({ email: "", password: "" });
+      setSignupData({ firstName: "", lastName: "", email: "", password: "" });
+    }
+  }, [isOpen]);
 
   // FIXED LOGIN HANDLER
   const handleLogin = async (e) => {
@@ -487,7 +458,7 @@ const AuthModal = ({
     } catch (error) {
       console.error("❌ Registration error:", error);
 
-      let errorMessage = "Failed to register. Please try again.";
+      let errorMessage = "Failed to create account. Please try again.";
 
       if (error.response) {
         console.error("Server error response:", error.response.data);
@@ -509,60 +480,44 @@ const AuthModal = ({
     }
   };
 
-  // Reset form and error when modal closes
-  const handleClose = () => {
-    setError("");
-    setLoginData({ email: "", password: "" });
-    setSignupData({ firstName: "", lastName: "", email: "", password: "" });
-    onClose();
-  };
-
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg w-full max-w-md relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b">
           <h2 className="text-xl font-semibold">
-            {activeTab === "login" ? "Welcome Back" : "Create Account"}
+            {activeTab === "login" ? "Sign In" : "Create Account"}
           </h2>
           <button
-            onClick={handleClose}
-            className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+            onClick={onClose}
+            className="p-2 hover:bg-gray-100 rounded-full"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Tab Navigation */}
+        {/* Tabs */}
         <div className="flex border-b">
           <button
-            onClick={() => {
-              setActiveTab("login");
-              setError("");
-            }}
-            className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
+            className={`flex-1 py-3 px-4 text-center ${
               activeTab === "login"
-                ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50"
+                ? "border-b-2 border-blue-500 text-blue-600"
                 : "text-gray-500 hover:text-gray-700"
             }`}
+            onClick={() => setActiveTab("login")}
           >
-            <User className="w-4 h-4 inline mr-2" />
-            Login
+            Sign In
           </button>
           <button
-            onClick={() => {
-              setActiveTab("signup");
-              setError("");
-            }}
-            className={`flex-1 py-3 px-4 text-center font-medium transition-colors ${
+            className={`flex-1 py-3 px-4 text-center ${
               activeTab === "signup"
-                ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50"
+                ? "border-b-2 border-blue-500 text-blue-600"
                 : "text-gray-500 hover:text-gray-700"
             }`}
+            onClick={() => setActiveTab("signup")}
           >
-            <User className="w-4 h-4 inline mr-2" />
             Sign Up
           </button>
         </div>
@@ -570,31 +525,27 @@ const AuthModal = ({
         {/* Content */}
         <div className="p-6">
           {error && (
-            <div className="bg-red-50 border-l-4 border-red-400 p-4 mb-4">
-              <p className="text-sm text-red-700">{error}</p>
+            <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+              {error}
             </div>
           )}
 
-          {/* Login Form */}
-          {activeTab === "login" && (
+          {activeTab === "login" ? (
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Email Address
                 </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  <input
-                    type="email"
-                    required
-                    value={loginData.email}
-                    onChange={(e) =>
-                      setLoginData({ ...loginData, email: e.target.value })
-                    }
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter your email"
-                  />
-                </div>
+                <input
+                  type="email"
+                  value={loginData.email}
+                  onChange={(e) =>
+                    setLoginData({ ...loginData, email: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Enter your email"
+                  required
+                />
               </div>
 
               <div>
@@ -602,26 +553,25 @@ const AuthModal = ({
                   Password
                 </label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                   <input
                     type={showPassword ? "text" : "password"}
-                    required
                     value={loginData.password}
                     onChange={(e) =>
                       setLoginData({ ...loginData, password: e.target.value })
                     }
-                    className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="Enter your password"
+                    required
                   />
                   <button
                     type="button"
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
                   >
                     {showPassword ? (
-                      <EyeOff className="h-4 w-4" />
+                      <EyeOff className="w-5 h-5 text-gray-400" />
                     ) : (
-                      <Eye className="h-4 w-4" />
+                      <Eye className="w-5 h-5 text-gray-400" />
                     )}
                   </button>
                 </div>
@@ -630,15 +580,12 @@ const AuthModal = ({
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isLoading ? "Signing in..." : "Sign In"}
+                {isLoading ? "Signing In..." : "Sign In"}
               </button>
             </form>
-          )}
-
-          {/* Signup Form */}
-          {activeTab === "signup" && (
+          ) : (
             <form onSubmit={handleSignup} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -647,16 +594,13 @@ const AuthModal = ({
                   </label>
                   <input
                     type="text"
-                    required
                     value={signupData.firstName}
                     onChange={(e) =>
-                      setSignupData({
-                        ...signupData,
-                        firstName: e.target.value,
-                      })
+                      setSignupData({ ...signupData, firstName: e.target.value })
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="First name"
+                    required
                   />
                 </div>
                 <div>
@@ -665,13 +609,13 @@ const AuthModal = ({
                   </label>
                   <input
                     type="text"
-                    required
                     value={signupData.lastName}
                     onChange={(e) =>
                       setSignupData({ ...signupData, lastName: e.target.value })
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="Last name"
+                    required
                   />
                 </div>
               </div>
@@ -680,19 +624,16 @@ const AuthModal = ({
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Email Address
                 </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  <input
-                    type="email"
-                    required
-                    value={signupData.email}
-                    onChange={(e) =>
-                      setSignupData({ ...signupData, email: e.target.value })
-                    }
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter your email"
-                  />
-                </div>
+                <input
+                  type="email"
+                  value={signupData.email}
+                  onChange={(e) =>
+                    setSignupData({ ...signupData, email: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Enter your email"
+                  required
+                />
               </div>
 
               <div>
@@ -700,26 +641,26 @@ const AuthModal = ({
                   Password
                 </label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                   <input
                     type={showPassword ? "text" : "password"}
-                    required
                     value={signupData.password}
                     onChange={(e) =>
                       setSignupData({ ...signupData, password: e.target.value })
                     }
-                    className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     placeholder="Create a password"
+                    required
+                    minLength="6"
                   />
                   <button
                     type="button"
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
                   >
                     {showPassword ? (
-                      <EyeOff className="h-4 w-4" />
+                      <EyeOff className="w-5 h-5 text-gray-400" />
                     ) : (
-                      <Eye className="h-4 w-4" />
+                      <Eye className="w-5 h-5 text-gray-400" />
                     )}
                   </button>
                 </div>
@@ -728,9 +669,9 @@ const AuthModal = ({
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isLoading ? "Creating account..." : "Create Account"}
+                {isLoading ? "Creating Account..." : "Create Account"}
               </button>
             </form>
           )}
@@ -740,55 +681,23 @@ const AuthModal = ({
   );
 };
 
-export { AuthModal };
-
-// Enhanced Slide-out Cart Component with Authentication
-const SlideOutCart = ({ isOpen, onClose, onProceedToCheckout }) => {
-  const { items, removeFromCart, updateQuantity, getTotalPrice } =
-    useCart();
-  const { user } = useContext(UserDataContext);
-  const [showAuthModal, setShowAuthModal] = useState(false);
-
-  const handleProceedToCheckout = () => {
-    console.log("🛒 Proceed to checkout clicked");
-    console.log("👤 User status:", {
-      isLoggedIn: !!(user && user.email),
-      userEmail: user?.email || "N/A",
-    });
-    
-
-    if (user && user.email) {
-      // User is logged in, proceed to checkout
-      if (onProceedToCheckout) {
-        onProceedToCheckout();
-      }
-    } else {
-      // User is not logged in, show AuthModal
-      setShowAuthModal(true);
-    }
-  };
-
-  const handleAuthSuccess = (userData) => {
-    console.log("✅ User authenticated successfully:", userData);
-    setShowAuthModal(false); // Close the modal
-    if (onProceedToCheckout) {
-      onProceedToCheckout(); // Proceed to checkout after login/signup
-    }
-  };
+// FIXED SlideOut Cart Component
+export const SlideOutCart = ({ isOpen, onClose, onProceedToCheckout }) => {
+  const { items, removeFromCart, updateQuantity, getTotalPrice } = useCart();
 
   return (
     <>
-      {/* Overlay */}
+      {/* Backdrop */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 transition-opacity"
+          className="fixed inset-0 bg-black bg-opacity-50 z-40"
           onClick={onClose}
         />
       )}
 
-      {/* Cart Slide-out */}
+      {/* Slide-out panel */}
       <div
-        className={`fixed top-0 right-0 h-full w-96 bg-white shadow-xl z-50 transform transition-transform duration-300 ${
+        className={`fixed right-0 top-0 h-full w-96 bg-white shadow-xl z-50 transform transition-transform duration-300 ${
           isOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
@@ -844,51 +753,33 @@ const SlideOutCart = ({ isOpen, onClose, onProceedToCheckout }) => {
                         {new Date(item.checkIn).toLocaleDateString()} -{" "}
                         {new Date(item.checkOut).toLocaleDateString()}
                       </div>
-                      <div className="flex items-center">
-                        <Users className="w-3 h-3 mr-1" />
-                        {item.guests} guests
-                      </div>
                     </div>
 
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
                         <button
-                          onClick={() =>
-                            updateQuantity(item, item.quantity - 1)
-                          }
-                          className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100"
+                          onClick={() => updateQuantity(item, item.quantity - 1)}
+                          className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-xs hover:bg-gray-300"
                         >
-                          <Minus className="w-3 h-3" />
+                          -
                         </button>
                         <span className="text-sm font-medium">
                           {item.quantity}
                         </span>
                         <button
-                          onClick={() =>
-                            updateQuantity(item, item.quantity + 1)
-                          }
-                          className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-100"
+                          onClick={() => updateQuantity(item, item.quantity + 1)}
+                          className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-xs hover:bg-gray-300"
                         >
-                          <Plus className="w-3 h-3" />
+                          +
                         </button>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-bold text-blue-600">
-                          €{(item.price * item.quantity).toFixed(2)}
+                        <p className="text-sm font-semibold">
+                          PKR {(item.price * item.quantity).toLocaleString()}
                         </p>
-                        <p className="text-xs text-gray-500">
-                          €{item.price}/night
-                        </p>
+                        {getRateClassBadge(item.rateClass)}
                       </div>
                     </div>
-
-                    {item.boardName && (
-                      <div className="mt-2 text-xs text-gray-600">
-                        <span className="bg-gray-100 px-2 py-1 rounded">
-                          {item.boardName}
-                        </span>
-                      </div>
-                    )}
                   </div>
                 ))}
               </div>
@@ -899,114 +790,21 @@ const SlideOutCart = ({ isOpen, onClose, onProceedToCheckout }) => {
           {items.length > 0 && (
             <div className="border-t p-4 space-y-4">
               <div className="flex justify-between items-center">
-                <span className="text-lg font-semibold">Total</span>
-                <span className="text-xl font-bold text-blue-600">
-                  €{getTotalPrice().toFixed(2)}
+                <span className="text-lg font-semibold">Total:</span>
+                <span className="text-lg font-bold text-blue-600">
+                  PKR {getTotalPrice().toLocaleString()}
                 </span>
               </div>
-
-              {getTotalPrice() > 1000 && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                  <div className="flex items-center">
-                    <Tag className="w-4 h-4 text-green-600 mr-2" />
-                    <p className="text-sm text-green-700">
-                      Free cancellation up to 24 hours before check-in
-                    </p>
-                  </div>
-                </div>
-              )}
-
               <button
-                onClick={handleProceedToCheckout}
-                className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
+                onClick={onProceedToCheckout}
+                className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 font-medium"
               >
-                <CreditCard className="w-5 h-5 mr-2" />
-                {user && user.email
-                  ? "Proceed to Checkout"
-                  : "Login to Checkout"}
+                Proceed to Checkout
               </button>
-
-              {(!user || !user.email) && (
-                <p className="text-xs text-gray-500 text-center mt-2">
-                  You need to login or create an account to proceed
-                </p>
-              )}
             </div>
           )}
         </div>
       </div>
-
-      {/* Authentication Modal */}
-      <AuthModal
-        isOpen={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-        onAuthSuccess={handleAuthSuccess}
-        defaultTab="login"
-      />
     </>
   );
 };
-
-export { SlideOutCart };
-
-// Room Card Component
-const RoomCard = ({ room }) => {
-  const { addToCart } = useCart();
-
-  const handleAddToCart = () => {
-    // Allow adding to cart without checking authentication
-    addToCart({
-      id: room.id,
-      roomName: room.name,
-      hotelName: room.hotelName,
-      location: room.location,
-      price: room.price,
-      checkIn: room.checkIn,
-      checkOut: room.checkOut,
-      guests: room.guests,
-      boardName: room.boardName,
-      rateClass: room.rateClass,
-      offers: room.offers,
-      cancellationPolicy: room.cancellationPolicy,
-    });
-  };
-
-  return (
-    <div className="border rounded-lg p-4 bg-white shadow-sm">
-      <div className="flex justify-between items-start mb-2">
-        <div>
-          <h3 className="font-semibold text-lg">{room.name}</h3>
-          <p className="text-gray-600">{room.hotelName}</p>
-          <div className="flex items-center text-sm text-gray-500 mt-1">
-            <MapPin className="w-4 h-4 mr-1" />
-            {room.location}
-          </div>
-        </div>
-        <div className="text-right">
-          <p className="text-2xl font-bold text-blue-600">€{room.price}</p>
-          <p className="text-sm text-gray-500">per night</p>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2 mb-3">
-        {getRateClassBadge(room.rateClass)}
-        {room.offers && room.offers.length > 0 && (
-          <span className="inline-flex items-center px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
-            <Tag className="w-3 h-3 mr-1" />
-            Special Offer
-          </span>
-        )}
-      </div>
-
-      <button
-        onClick={handleAddToCart}
-        className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center"
-      >
-        <Plus className="w-4 h-4 mr-2" />
-        Add to Cart
-      </button>
-    </div>
-  );
-};
-
-export { RoomCard };
