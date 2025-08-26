@@ -174,27 +174,27 @@ const Checkout = () => {
     setError('');
 
     try {
-      // Prepare payment data
+      // Prepare payment data - Fixed to match backend validation
       const paymentData = {
-        amount: totalAmount,
+        amount: parseFloat(totalAmount), // Ensure it's a number
         currency: 'PKR',
         userData: {
-          firstName: billingInfo.firstName,
-          lastName: billingInfo.lastName,
-          email: billingInfo.email,
-          phone: billingInfo.phone,
-          address: billingInfo.address,
-          city: billingInfo.city,
-          state: billingInfo.state,
-          country: billingInfo.country.split(' (')[0], // Remove country code from display
-          postalCode: billingInfo.postalCode
+          firstName: billingInfo.firstName.trim(),
+          lastName: billingInfo.lastName.trim(),
+          email: billingInfo.email.trim().toLowerCase(),
+          phone: billingInfo.phone.trim(),
+          address: billingInfo.address.trim(),
+          city: billingInfo.city.trim(),
+          state: billingInfo.state, // This should be the state CODE (e.g., 'SD', 'PB')
+          country: 'PK', // Backend expects just 'PK', not full country name
+          postalCode: billingInfo.postalCode || ''
         },
         bookingData: {
           items: checkoutItems.map(item => ({
-            id: item.id,
-            name: `${item.hotelName} - ${item.roomName}`,
-            quantity: item.quantity,
-            price: item.price,
+            id: item.id || `room-${Date.now()}`,
+            name: `${item.hotelName || 'Hotel'} - ${item.roomName || 'Room'}`,
+            quantity: parseInt(item.quantity) || 1,
+            price: parseFloat(item.price) || 0,
             category: 'Hotel',
             checkIn: item.checkIn,
             checkOut: item.checkOut,
@@ -202,11 +202,56 @@ const Checkout = () => {
           })),
           checkIn: checkoutItems[0]?.checkIn,
           checkOut: checkoutItems[0]?.checkOut,
-          totalAmount: totalAmount
+          totalAmount: parseFloat(totalAmount)
         }
       };
 
-      console.log('🚀 Initiating payment with data:', paymentData);
+      console.log('🚀 Initiating payment with data:', {
+        amount: paymentData.amount,
+        currency: paymentData.currency,
+        userDataKeys: Object.keys(paymentData.userData),
+        itemCount: paymentData.bookingData.items.length,
+        hasRequiredFields: {
+          firstName: !!paymentData.userData.firstName && paymentData.userData.firstName.length >= 2,
+          lastName: !!paymentData.userData.lastName && paymentData.userData.lastName.length >= 2,
+          email: !!paymentData.userData.email && paymentData.userData.email.includes('@'),
+          phone: !!paymentData.userData.phone,
+          address: !!paymentData.userData.address && paymentData.userData.address.length >= 5,
+          city: !!paymentData.userData.city && paymentData.userData.city.length >= 2,
+          state: !!paymentData.userData.state,
+          country: paymentData.userData.country === 'PK',
+          items: paymentData.bookingData.items.length > 0
+        },
+        phoneValidation: {
+          original: billingInfo.phone,
+          trimmed: paymentData.userData.phone,
+          isValidFormat: /^(\+92|0)?[0-9]{10}$/.test(paymentData.userData.phone)
+        }
+      });
+
+      // Validate required fields locally first
+      const requiredFields = {
+        'First Name (min 2 chars)': paymentData.userData.firstName && paymentData.userData.firstName.length >= 2,
+        'Last Name (min 2 chars)': paymentData.userData.lastName && paymentData.userData.lastName.length >= 2,
+        'Email': paymentData.userData.email && paymentData.userData.email.includes('@'),
+        'Phone (Pakistani format)': paymentData.userData.phone && /^(\+92|0)?[0-9]{10}$/.test(paymentData.userData.phone),
+        'Address (min 5 chars)': paymentData.userData.address && paymentData.userData.address.length >= 5,
+        'City (min 2 chars)': paymentData.userData.city && paymentData.userData.city.length >= 2,
+        'State Code': ['IS', 'BA', 'KP', 'PB', 'SD'].includes(paymentData.userData.state),
+        'Country': paymentData.userData.country === 'PK'
+      };
+
+      const failedFields = Object.entries(requiredFields)
+        .filter(([key, isValid]) => !isValid)
+        .map(([key]) => key);
+
+      if (failedFields.length > 0) {
+        throw new Error(`Validation failed for: ${failedFields.join(', ')}`);
+      }
+
+      if (!paymentData.bookingData.items.length) {
+        throw new Error('No items found in cart');
+      }
 
       // Call payment API - Fixed endpoint URL
       const response = await axios.post(
@@ -232,11 +277,29 @@ const Checkout = () => {
 
     } catch (error) {
       console.error('❌ Payment error:', error);
+      console.error('❌ Response data:', error.response?.data);
+      console.error('❌ Response status:', error.response?.status);
+      console.error('❌ Response headers:', error.response?.headers);
       
       let errorMessage = 'Payment failed. Please try again.';
       
-      if (error.response?.data?.message) {
-        errorMessage = error.response.data.message;
+      if (error.response?.data) {
+        // Handle different error response formats
+        if (error.response.data.message) {
+          errorMessage = error.response.data.message;
+        } else if (error.response.data.data?.message) {
+          errorMessage = error.response.data.data.message;
+        } else if (error.response.data.errors) {
+          // Handle validation errors array
+          const validationErrors = Array.isArray(error.response.data.errors) 
+            ? error.response.data.errors.map(err => err.msg || err.message).join(', ')
+            : JSON.stringify(error.response.data.errors);
+          errorMessage = `Validation errors: ${validationErrors}`;
+        } else if (typeof error.response.data === 'string') {
+          errorMessage = error.response.data;
+        } else {
+          errorMessage = `Server error (${error.response.status}): ${JSON.stringify(error.response.data)}`;
+        }
       } else if (error.message) {
         errorMessage = error.message;
       }
@@ -351,7 +414,7 @@ const Checkout = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Phone Number *
+                Phone Number * (Pakistani format: +92XXXXXXXXXX or 03XXXXXXXXX)
               </label>
               <div className="relative">
                 <Phone className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
@@ -360,10 +423,13 @@ const Checkout = () => {
                   value={billingInfo.phone}
                   onChange={(e) => handleInputChange('phone', e.target.value)}
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Enter phone number"
+                  placeholder="e.g., +923001234567 or 03001234567"
                   required
                 />
               </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Format: +92 followed by 10 digits OR 0 followed by 10 digits
+              </p>
             </div>
           </div>
 
@@ -415,13 +481,71 @@ const Checkout = () => {
             </div>
           </div>
 
-          {/* Country and State */}
-          <CountryStateSelector
-            selectedCountry={billingInfo.country}
-            selectedState={billingInfo.state}
-            onCountryChange={(country) => handleInputChange('country', country)}
-            onStateChange={(state) => handleInputChange('state', state)}
-          />
+          {/* Country and State - Fixed for Pakistan focus */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Country *
+              </label>
+              <select
+                value={billingInfo.country}
+                onChange={(e) => {
+                  handleInputChange('country', e.target.value);
+                  handleInputChange('state', ''); // Reset state when country changes
+                }}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                required
+              >
+                <option value="">Select Country</option>
+                <option value="Pakistan">Pakistan</option>
+                <option value="United States">United States</option>
+                <option value="United Kingdom">United Kingdom</option>
+                <option value="Canada">Canada</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                State/Province *
+              </label>
+              <select
+                value={billingInfo.state}
+                onChange={(e) => handleInputChange('state', e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                required
+                disabled={!billingInfo.country}
+              >
+                <option value="">
+                  {billingInfo.country ? 'Select State/Province' : 'Select Country First'}
+                </option>
+                {billingInfo.country === 'Pakistan' && (
+                  <>
+                    <option value="IS">Islamabad</option>
+                    <option value="BA">Balochistan</option>
+                    <option value="KP">Khyber Pakhtunkhwa</option>
+                    <option value="PB">Punjab</option>
+                    <option value="SD">Sindh</option>
+                    <option value="JK">Azad Jammu and Kashmir</option>
+                    <option value="GB">Gilgit-Baltistan</option>
+                    <option value="TA">Federally Administered Tribal Areas</option>
+                  </>
+                )}
+                {billingInfo.country === 'United States' && (
+                  <>
+                    <option value="AL">Alabama</option>
+                    <option value="AK">Alaska</option>
+                    <option value="AZ">Arizona</option>
+                    <option value="AR">Arkansas</option>
+                    <option value="CA">California</option>
+                    <option value="CO">Colorado</option>
+                    <option value="FL">Florida</option>
+                    <option value="TX">Texas</option>
+                    <option value="NY">New York</option>
+                  </>
+                )}
+              </select>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -475,6 +599,19 @@ const Checkout = () => {
           <span className="text-blue-600">PKR {totalAmount.toLocaleString()}</span>
         </div>
       </div>
+
+      {/* Debug Info - Remove this in production */}
+      {import.meta.env.MODE === 'development' && (
+        <div className="bg-gray-100 p-4 rounded-lg mb-4 text-xs">
+          <h4 className="font-medium mb-2">Debug Info:</h4>
+          <pre>{JSON.stringify({
+            billingInfo,
+            checkoutItems: checkoutItems?.length || 0,
+            totalAmount,
+            user: user?.email || 'Not logged in'
+          }, null, 2)}</pre>
+        </div>
+      )}
 
       {/* Payment Button */}
       <div className="mt-6">
