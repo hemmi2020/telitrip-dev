@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const fetch = require('node-fetch');
-const paymentModel = require('../models/payment.model'); // ✅ CORRECT
+const paymentModel = require('../models/payment.model');
 const bookingModel = require('../models/booking.model');
 const ApiResponse = require('../utils/response.util');
 const { asyncErrorHandler } = require('../middlewares/errorHandler.middleware');
@@ -20,101 +20,71 @@ const HBL_TYPE_ID = process.env.HBL_TYPE_ID || 'ECOM';
 // Environment detection
 const isProduction = process.env.NODE_ENV === 'production';
 
-// Validate configuration on startup
-const validateConfiguration = () => {
-  const required = [
-    'HBLPAY_USER_ID',
-    'HBLPAY_PASSWORD', 
-    'HBL_PUBLIC_KEY_PEM',
-    'HBL_SANDBOX_API_URL',
-    'HBL_PRODUCTION_API_URL',
-    'HBL_SANDBOX_REDIRECT_URL',
-    'HBL_PRODUCTION_REDIRECT_URL'
-  ];
+// ✅ FIXED: Generate payment ID that matches the schema validation pattern
+function generatePaymentId() {
+  const timestamp = Date.now();
+  const randomStr = Math.random().toString(36).substring(2, 8).toLowerCase(); // ✅ Force lowercase
+  return `PAY_${timestamp}_${randomStr}`;
+}
 
-  const missing = required.filter(key => !process.env[key]);
-  
-  if (missing.length > 0) {
-    throw new Error(`Missing required HBLPay configuration: ${missing.join(', ')}`);
-  }
-  
-  return true;
-};
-
-// Initialize configuration check
-try {
-  validateConfiguration();
-  console.log('✅ HBLPay configuration validated successfully');
-} catch (error) {
-  console.error('❌ HBLPay configuration error:', error.message);
+// ✅ FIXED: Generate order ID
+function generateOrderId() {
+  const timestamp = Date.now();
+  const randomStr = Math.random().toString(36).substring(2, 6).toLowerCase();
+  return `ORD_${timestamp}_${randomStr}`;
 }
 
 // RSA Encryption function for sensitive data
 function encryptSensitiveData(data) {
+  if (!HBL_PUBLIC_KEY) {
+    throw new Error('HBL public key not configured');
+  }
+  
   try {
-    if (!HBL_PUBLIC_KEY) {
-      throw new Error('HBL Public Key not configured');
-    }
-    
     const buffer = Buffer.from(data, 'utf8');
     const encrypted = crypto.publicEncrypt({
       key: HBL_PUBLIC_KEY,
       padding: crypto.constants.RSA_PKCS1_PADDING,
     }, buffer);
-    
     return encrypted.toString('base64');
   } catch (error) {
     console.error('Encryption error:', error);
-    throw new Error('Failed to encrypt sensitive data');
+    throw new Error('Failed to encrypt data');
   }
 }
 
-// ✅ IMPROVED PAYMENT ID GENERATION FUNCTION
-const generatePaymentId = () => {
-  const timestamp = Date.now();
-  const random = Math.random().toString(36).substring(2, 8).toUpperCase();
-  return `PAY_${timestamp}_${random}`;
-};
-
-// Generate unique order ID
-const generateOrderId = () => {
-  return 'ORD_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9).toUpperCase();
-};
-
-// Build HBLPay request data
+// Build HBLPay request payload
 const buildHBLPayRequest = (paymentData, userId) => {
-  const { bookingData, userData, amount, currency, orderId } = paymentData;
-  
-  // Build return URLs
-  const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-  const returnUrl = `${baseUrl}/payment/return`;
-  const cancelUrl = `${baseUrl}/payment/cancel`;
-  
-  // Prepare order items
-  const orderItems = bookingData.items.map(item => ({
-    ITEM_NAME: item.name,
-    QUANTITY: item.quantity.toString(),
-    UNIT_PRICE: item.price.toString(),
-    CATEGORY: item.category || 'Hotel',
-    SUB_CATEGORY: 'Service'
-  }));
+  const { amount, currency, bookingData, userData, orderId } = paymentData;
 
-  // Build main request object
-  const hblRequest = {
+  // Build return URLs
+  const returnUrl = isProduction 
+    ? `${process.env.FRONTEND_URL}/payment/success`
+    : `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/success`;
+  
+  const cancelUrl = isProduction
+    ? `${process.env.FRONTEND_URL}/payment/cancel` 
+    : `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/cancel`;
+
+  return {
     USER_ID: HBLPAY_USER_ID,
-    PASSWORD: encryptSensitiveData(HBLPAY_PASSWORD),
-    CHANNEL: HBL_CHANNEL,
-    TYPE_ID: HBL_TYPE_ID,
+    PASSWORD: HBLPAY_PASSWORD,
     RETURN_URL: returnUrl,
     CANCEL_URL: cancelUrl,
+    CHANNEL: HBL_CHANNEL,
+    TYPE_ID: HBL_TYPE_ID,
     ORDER: {
-      SUBTOTAL: amount.toString(),
       DISCOUNT_ON_TOTAL: "0",
-      ORDER_SUMMARY: orderItems
+      SUBTOTAL: amount.toFixed(2),
+      OrderSummaryDescription: bookingData.items.map(item => 
+        `${item.name} x${item.quantity}`
+      ).join(', ')
     },
     SHIPPING_DETAIL: {
       NAME: `${userData.firstName} ${userData.lastName}`,
-      DELIVERY_DAYS: "1"
+      ICON_PATH: null,
+      DELIVERY_DAYS: "1",
+      SHIPPING_COST: "0"
     },
     ADDITIONAL_DATA: {
       REFERENCE_NUMBER: orderId,
@@ -138,32 +108,29 @@ const buildHBLPayRequest = (paymentData, userId) => {
       SHIP_TO_ADDRESS_STATE: userData.state,
       SHIP_TO_ADDRESS_COUNTRY: userData.country,
       SHIP_TO_ADDRESS_POSTAL_CODE: userData.postalCode || '',
-      MerchantFields: {
-        MDD1: orderId,
-        MDD2: userData.email,
-        MDD3: userData.phone,
-        MDD4: amount.toString(),
-        MDD5: currency,
-        MDD6: bookingData.checkIn || '',
-        MDD7: bookingData.checkOut || '',
-        MDD8: bookingData.guests?.toString() || '1',
-        MDD9: 'Online',
-        MDD10: userData.city,
-        MDD11: userData.state,
-        MDD12: userData.country,
-        MDD13: 'Hotel Booking',
-        MDD14: 'Web',
-        MDD15: new Date().toISOString(),
-        MDD16: userData.firstName + ' ' + userData.lastName,
-        MDD17: 'Hotel',
-        MDD18: userData.phone,
-        MDD19: userData.country,
-        MDD20: 'Regular Customer'
-      }
+      // Merchant Defined Data for HBL
+      MDD1: userData.firstName,
+      MDD2: userData.lastName,
+      MDD3: userData.email,
+      MDD4: userData.phone,
+      MDD5: userData.address,
+      MDD6: userData.city,
+      MDD7: userData.state,
+      MDD8: userData.country,
+      MDD9: currency,
+      MDD10: bookingData.items.length.toString(),
+      MDD11: bookingData.checkIn || '',
+      MDD12: bookingData.checkOut || '',
+      MDD13: 'Hotel Booking',
+      MDD14: orderId,
+      MDD15: bookingData.checkIn || '',
+      MDD16: bookingData.checkOut || '',
+      MDD17: 'Hotel',
+      MDD18: userData.phone || userData.email || '',
+      MDD19: 'PK',
+      MDD20: 'N'
     }
   };
-
-  return hblRequest;
 };
 
 // Call HBLPay API
@@ -224,6 +191,7 @@ const buildRedirectUrl = (sessionId) => {
   const baseUrl = isProduction ? HBL_PRODUCTION_REDIRECT : HBL_SANDBOX_REDIRECT;
   return `${baseUrl}${sessionId}`;
 };
+
 
 // Create HBLPay payment session
 module.exports.initiateHBLPayPayment = asyncErrorHandler(async (req, res) => {

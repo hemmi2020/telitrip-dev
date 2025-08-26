@@ -10,7 +10,9 @@ const Header = () => {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const { user, setUser } = useContext(UserDataContext);
-  const { getTotalItems } = useCart();
+  
+  // ✅ FIXED: Call useCart at the component level, NOT inside event handlers
+  const { getTotalItems, items: cartItems, getTotalPrice } = useCart();
   
   const handleAccountClick = () => {
     if (user && user.email) {
@@ -33,18 +35,16 @@ const Header = () => {
     navigate('/home');
   };
 
-  // FIXED: Properly pass cart data to checkout
+  // ✅ FIXED: Use cart data from hook called at component level
   const handleProceedToCheckout = () => {
     console.log('🛒 Proceeding to checkout from header...');
-    
-    const { items, getTotalPrice } = useCart();
-    console.log('📦 Cart items:', items);
+    console.log('📦 Cart items:', cartItems);
     console.log('💰 Total price:', getTotalPrice());
     
     setIsCartOpen(false);
     
     // Check if cart has items
-    if (!items || items.length === 0) {
+    if (!cartItems || cartItems.length === 0) {
       console.warn('⚠️ Cart is empty, cannot proceed to checkout');
       return;
     }
@@ -52,7 +52,7 @@ const Header = () => {
     // Navigate to checkout page with cart data
     navigate('/checkout', {
       state: {
-        cartItems: items,
+        cartItems: cartItems,
         totalAmount: getTotalPrice(),
         fromCart: true
       }

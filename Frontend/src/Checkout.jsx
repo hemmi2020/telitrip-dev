@@ -174,10 +174,51 @@ const Checkout = () => {
     setError('');
 
     try {
-      // Prepare payment data - Fixed to match backend validation
+      console.log('🚀 Starting checkout process...');
+
+      // Step 1: Create booking first (required by backend)
+      const bookingData = {
+        hotelName: checkoutItems[0]?.hotelName || 'Hotel Booking',
+        roomName: checkoutItems.map(item => item.roomName).join(', ') || 'Multiple Rooms',
+        location: checkoutItems[0]?.location || 'Various Locations',
+        checkIn: checkoutItems[0]?.checkIn,
+        checkOut: checkoutItems[0]?.checkOut,
+        guests: checkoutItems.reduce((total, item) => total + (item.guests || 1), 0),
+        totalAmount: parseFloat(totalAmount),
+        boardType: 'Room Only',
+        rateClass: checkoutItems[0]?.rateClass || 'NOR',
+        items: checkoutItems.map(item => ({
+          roomName: item.roomName,
+          hotelName: item.hotelName,
+          quantity: item.quantity,
+          price: item.price,
+          checkIn: item.checkIn,
+          checkOut: item.checkOut
+        }))
+      };
+
+      console.log('📋 Creating booking with data:', bookingData);
+
+      // Create booking first
+      const bookingResponse = await axios.post(
+        `${import.meta.env.VITE_BASE_URL}/api/bookings/create`,
+        bookingData,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      const booking = bookingResponse.data.data;
+      console.log('✅ Booking created:', booking);
+
+      // Step 2: Now create payment with the booking ID
       const paymentData = {
-        amount: parseFloat(totalAmount), // Ensure it's a number
+        amount: parseFloat(totalAmount),
         currency: 'PKR',
+        bookingId: booking._id, // ✅ Now we have the booking ID!
         userData: {
           firstName: billingInfo.firstName.trim(),
           lastName: billingInfo.lastName.trim(),
@@ -185,8 +226,8 @@ const Checkout = () => {
           phone: billingInfo.phone.trim(),
           address: billingInfo.address.trim(),
           city: billingInfo.city.trim(),
-          state: billingInfo.state, // This should be the state CODE (e.g., 'SD', 'PB')
-          country: 'PK', // Backend expects just 'PK', not full country name
+          state: billingInfo.state,
+          country: 'PK',
           postalCode: billingInfo.postalCode || ''
         },
         bookingData: {
@@ -206,54 +247,9 @@ const Checkout = () => {
         }
       };
 
-      console.log('🚀 Initiating payment with data:', {
-        amount: paymentData.amount,
-        currency: paymentData.currency,
-        userDataKeys: Object.keys(paymentData.userData),
-        itemCount: paymentData.bookingData.items.length,
-        hasRequiredFields: {
-          firstName: !!paymentData.userData.firstName && paymentData.userData.firstName.length >= 2,
-          lastName: !!paymentData.userData.lastName && paymentData.userData.lastName.length >= 2,
-          email: !!paymentData.userData.email && paymentData.userData.email.includes('@'),
-          phone: !!paymentData.userData.phone,
-          address: !!paymentData.userData.address && paymentData.userData.address.length >= 5,
-          city: !!paymentData.userData.city && paymentData.userData.city.length >= 2,
-          state: !!paymentData.userData.state,
-          country: paymentData.userData.country === 'PK',
-          items: paymentData.bookingData.items.length > 0
-        },
-        phoneValidation: {
-          original: billingInfo.phone,
-          trimmed: paymentData.userData.phone,
-          isValidFormat: /^(\+92|0)?[0-9]{10}$/.test(paymentData.userData.phone)
-        }
-      });
+      console.log('💳 Initiating payment with booking ID:', booking._id);
 
-      // Validate required fields locally first
-      const requiredFields = {
-        'First Name (min 2 chars)': paymentData.userData.firstName && paymentData.userData.firstName.length >= 2,
-        'Last Name (min 2 chars)': paymentData.userData.lastName && paymentData.userData.lastName.length >= 2,
-        'Email': paymentData.userData.email && paymentData.userData.email.includes('@'),
-        'Phone (Pakistani format)': paymentData.userData.phone && /^(\+92|0)?[0-9]{10}$/.test(paymentData.userData.phone),
-        'Address (min 5 chars)': paymentData.userData.address && paymentData.userData.address.length >= 5,
-        'City (min 2 chars)': paymentData.userData.city && paymentData.userData.city.length >= 2,
-        'State Code': ['IS', 'BA', 'KP', 'PB', 'SD'].includes(paymentData.userData.state),
-        'Country': paymentData.userData.country === 'PK'
-      };
-
-      const failedFields = Object.entries(requiredFields)
-        .filter(([key, isValid]) => !isValid)
-        .map(([key]) => key);
-
-      if (failedFields.length > 0) {
-        throw new Error(`Validation failed for: ${failedFields.join(', ')}`);
-      }
-
-      if (!paymentData.bookingData.items.length) {
-        throw new Error('No items found in cart');
-      }
-
-      // Call payment API - Fixed endpoint URL
+      // Call payment API with booking ID
       const response = await axios.post(
         `${import.meta.env.VITE_BASE_URL}/api/payments/hblpay/initiate`,
         paymentData,
@@ -267,10 +263,10 @@ const Checkout = () => {
 
       console.log('✅ Payment response:', response.data);
 
-      if (response.data.success && response.data.data?.redirectUrl) {
+      if (response.data.success && response.data.data?.paymentUrl) {
         // Clear cart and redirect to payment gateway
         clearCart();
-        window.location.href = response.data.data.redirectUrl;
+        window.location.href = response.data.data.paymentUrl;
       } else {
         throw new Error(response.data.message || 'Payment initialization failed');
       }
