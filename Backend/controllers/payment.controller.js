@@ -3,19 +3,19 @@ const fetch = require('node-fetch');
 const paymentModel = require('../models/payment.model');
 const bookingModel = require('../models/booking.model');
 const ApiResponse = require('../utils/response.util');
-const { asyncErrorHandler } = require('../middlewares/errorHandler.middleware');
+const { asyncErrorHandler } = require('../middlewares/errorHandler.middleware');  
 const notificationService = require('../services/notification.service');
 
-// HBLPay Configuration
-const HBLPAY_USER_ID = process.env.HBLPAY_USER_ID || 'testmerchant';
-const HBLPAY_PASSWORD = process.env.HBLPAY_PASSWORD || 'hbl@1234';
+// HBLPay Configuration - Use your actual HBL-provided credentials
+const HBLPAY_USER_ID = process.env.HBLPAY_USER_ID || 'teliadmin';
+const HBLPAY_PASSWORD = process.env.HBLPAY_PASSWORD || 'd6n26Yd4m!';
 const HBL_PUBLIC_KEY = process.env.HBL_PUBLIC_KEY_PEM;
 const HBL_SANDBOX_URL = process.env.HBL_SANDBOX_API_URL || 'https://testpaymentapi.hbl.com/hblpay/api/checkout';
 const HBL_PRODUCTION_URL = process.env.HBL_PRODUCTION_API_URL;
-const HBL_SANDBOX_REDIRECT = process.env.HBL_SANDBOX_REDIRECT_URL || 'https://testpaymentapi.hbl.com/HBLPay/Site/index.html#/checkout?data=';
+const HBL_SANDBOX_REDIRECT = process.env.HBL_SANDBOX_REDIRECT_URL || 'https://testpaymentapi.hbl.com/HBLPay/site/index.html#/checkout?data=';
 const HBL_PRODUCTION_REDIRECT = process.env.HBL_PRODUCTION_REDIRECT_URL;
-const HBL_CHANNEL = process.env.HBL_CHANNEL || 'BOOKME_WEB';
-const HBL_TYPE_ID = process.env.HBL_TYPE_ID || '0';
+const HBL_CHANNEL = 'HBLPay_Teli_Website'; // Your HBL-provided channel
+const HBL_TYPE_ID = '0'; // Keep as '0' per documentation
 
 // Environment detection
 const isProduction = process.env.NODE_ENV === 'production';
@@ -41,27 +41,56 @@ function generateOrderId() {
   return `ORD_${timestamp}_${randomStr}`;
 }
 
-// RSA Encryption function for sensitive data (if needed)
-function encryptSensitiveData(data) {
-  if (!HBL_PUBLIC_KEY) {
-    console.warn('HBL public key not configured - using plain text');
-    return data; // Return plain text if no encryption key
+
+
+// RSA Encryption function for HBL parameters
+function encryptHBLData(data, publicKey) {
+  if (!publicKey) {
+    console.warn('HBL public key not configured - cannot encrypt data');
+    throw new Error('HBL public key not configured');
   }
   
   try {
     const buffer = Buffer.from(data, 'utf8');
     const encrypted = crypto.publicEncrypt({
-      key: HBL_PUBLIC_KEY,
+      key: publicKey,
       padding: crypto.constants.RSA_PKCS1_PADDING,
     }, buffer);
     return encrypted.toString('base64');
   } catch (error) {
     console.error('Encryption error:', error);
-    return data; // Fallback to plain text
+    throw new Error('Failed to encrypt data for HBL');
   }
 }
 
-// Build HBLPay request payload - CORRECTED FORMAT
+// Recursive function to encrypt all parameters except USER_ID
+function encryptRequestParameters(obj, publicKey) {
+  const result = {};
+  
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === 'USER_ID') {
+      // USER_ID stays unencrypted
+      result[key] = value;
+    } else if (value === null || value === undefined) {
+      result[key] = value;
+    } else if (Array.isArray(value)) {
+      // Encrypt array elements
+      result[key] = value.map(item => 
+        typeof item === 'object' ? encryptRequestParameters(item, publicKey) : encryptHBLData(String(item), publicKey)
+      );
+    } else if (typeof value === 'object') {
+      // Recursively encrypt object properties
+      result[key] = encryptRequestParameters(value, publicKey);
+    } else {
+      // Encrypt primitive values
+      result[key] = encryptHBLData(String(value), publicKey); 
+    }
+  }
+  
+  return result;
+}
+
+// Build HBLPay request payload - EXACT MATCH TO DOCUMENTATION
 const buildHBLPayRequest = (paymentData, userId) => {
   const { amount, currency, orderId, bookingData, userData } = paymentData;
   
@@ -80,7 +109,7 @@ const buildHBLPayRequest = (paymentData, userId) => {
     throw new Error(`Invalid amount parameter: ${amount} (type: ${typeof amount})`);
   }
 
-  // Build proper HBLPay request according to documentation
+  // Build request matching HBL documentation sample EXACTLY - MINIMAL VERSION
   const request = {
     "USER_ID": HBLPAY_USER_ID,
     "PASSWORD": HBLPAY_PASSWORD,
@@ -89,13 +118,13 @@ const buildHBLPayRequest = (paymentData, userId) => {
     "CHANNEL": HBL_CHANNEL,
     "TYPE_ID": HBL_TYPE_ID,
     "ORDER": {
-      "DISCOUNT_ON_TOTAL": 0, // Number, not string
-      "SUBTOTAL": parseFloat(amount.toFixed(2)), // Ensure proper number format
+      "DISCOUNT_ON_TOTAL": "0",
+      "SUBTOTAL": amount.toFixed(2),
       "OrderSummaryDescription": [
         {
-          "ITEM_NAME": bookingData?.hotelName || "Hotel Booking",
-          "QUANTITY": 1, // Number, not string
-          "UNIT_PRICE": parseFloat(amount.toFixed(2)),
+          "ITEM_NAME": "HOTEL BOOKING",
+          "QUANTITY": "1",
+          "UNIT_PRICE": amount.toFixed(2),
           "OLD_PRICE": null,
           "CATEGORY": "Hotel",
           "SUB_CATEGORY": "Room Booking"
@@ -103,54 +132,54 @@ const buildHBLPayRequest = (paymentData, userId) => {
       ]
     },
     "SHIPPING_DETAIL": {
-      "NAME": "Digital Service",
+      "NAME": "DHL SERVICE",
       "ICON_PATH": null,
-      "DELIEVERY_DAYS": 0, // Note: HBL uses DELIEVERY_DAYS (misspelled)
-      "SHIPPING_COST": 0
+      "DELIEVERY_DAYS": "0",
+      "SHIPPING_COST": "0"
     },
     "ADDITIONAL_DATA": {
-      "REFERENCE_NUMBER": orderId || generateOrderId(),
-      "CUSTOMER_ID": userId?.toString() || null,
-      "CURRENCY": currency || "PKR",
-      "BILL_TO_FORENAME": userData?.firstName || "Test",
-      "BILL_TO_SURNAME": userData?.lastName || "User", 
+      "REFERENCE_NUMBER": orderId || "TEST123456789",
+      "CUSTOMER_ID": userId?.toString() || "GUEST_USER_" + Date.now(), // Provide actual customer ID
+      "CURRENCY": "PKR",
+      "BILL_TO_FORENAME": userData?.firstName || "John",
+      "BILL_TO_SURNAME": userData?.lastName || "Doe",
       "BILL_TO_EMAIL": userData?.email || "test@example.com",
-      "BILL_TO_PHONE": userData?.phone || "03001234567",
-      "BILL_TO_ADDRESS_LINE1": userData?.address || "Test Address",
-      "BILL_TO_ADDRESS_CITY": userData?.city || "Karachi",
-      "BILL_TO_ADDRESS_STATE": userData?.state || "Sindh",
-      "BILL_TO_ADDRESS_COUNTRY": userData?.country || "PK",
-      "BILL_TO_ADDRESS_POSTAL_CODE": userData?.postalCode || "75500",
-      "SHIP_TO_FORENAME": userData?.firstName || "Test",
-      "SHIP_TO_SURNAME": userData?.lastName || "User",
-      "SHIP_TO_EMAIL": userData?.email || "test@example.com", 
-      "SHIP_TO_PHONE": userData?.phone || "03001234567",
-      "SHIP_TO_ADDRESS_LINE1": userData?.address || "Test Address",
-      "SHIP_TO_ADDRESS_CITY": userData?.city || "Karachi",
-      "SHIP_TO_ADDRESS_STATE": userData?.state || "Sindh",
-      "SHIP_TO_ADDRESS_COUNTRY": userData?.country || "PK",
-      "SHIP_TO_ADDRESS_POSTAL_CODE": userData?.postalCode || "75500",
+      "BILL_TO_PHONE": userData?.phone || "02890888888",
+      "BILL_TO_ADDRESS_LINE": userData?.address || "1 Card Lane",
+      "BILL_TO_ADDRESS_CITY": userData?.city || "My City",
+      "BILL_TO_ADDRESS_STATE": userData?.state || "CA",
+      "BILL_TO_ADDRESS_COUNTRY": userData?.country || "US",
+      "BILL_TO_ADDRESS_POSTAL_CODE": userData?.postalCode || "94043",
+      "SHIP_TO_FORENAME": userData?.firstName || "John",
+      "SHIP_TO_SURNAME": userData?.lastName || "Doe",
+      "SHIP_TO_EMAIL": userData?.email || "test@example.com",
+      "SHIP_TO_PHONE": userData?.phone || "02890888888",
+      "SHIP_TO_ADDRESS_LINE": userData?.address || "1 Card Lane",
+      "SHIP_TO_ADDRESS_CITY": userData?.city || "My City",
+      "SHIP_TO_ADDRESS_STATE": userData?.state || "CA",
+      "SHIP_TO_ADDRESS_COUNTRY": userData?.country || "US",
+      "SHIP_TO_ADDRESS_POSTAL_CODE": userData?.postalCode || "94043",
       "MerchantFields": {
-        "MDD1": userData?.firstName || "test",
-        "MDD2": userData?.lastName || "user", 
-        "MDD3": userData?.email || "test@example.com",
-        "MDD4": userData?.phone || "03001234567",
-        "MDD5": bookingData?.hotelName || "hotel",
-        "MDD6": "booking",
-        "MDD7": currency || "PKR",
-        "MDD8": amount.toString(),
-        "MDD9": orderId || "test-order",
-        "MDD10": "online",
-        "MDD11": "website",
-        "MDD12": "instant",
-        "MDD13": "hotel-booking",
-        "MDD14": "travel",
-        "MDD15": "accommodation",
-        "MDD16": "pakistan",
-        "MDD17": "ecommerce",
-        "MDD18": "digital",
-        "MDD19": "service",
-        "MDD20": "payment"
+        "MDD1": "mdd1",
+        "MDD2": "mdd2", 
+        "MDD3": "mdd3",
+        "MDD4": "mdd4",
+        "MDD5": "mdd5",
+        "MDD6": "mdd6",
+        "MDD7": "mdd7",
+        "MDD8": "mdd8",
+        "MDD9": "mdd9",
+        "MDD10": "mdd10",
+        "MDD11": "mdd11",
+        "MDD12": "mdd12",
+        "MDD13": "mdd13",
+        "MDD14": "mdd14",
+        "MDD15": "mdd15",
+        "MDD16": "mdd16",
+        "MDD17": "mdd17",
+        "MDD18": "mdd18",
+        "MDD19": "mdd19",
+        "MDD20": "mdd20"
       }
     }
   };
@@ -181,6 +210,17 @@ const callHBLPayAPI = async (requestData) => {
   });
 
   try {
+    // ✅ ENCRYPT THE REQUEST DATA (except USER_ID)
+    let finalRequestData = requestData;
+    
+    if (HBL_PUBLIC_KEY) {
+      console.log('🔐 Encrypting request parameters...');
+      finalRequestData = encryptRequestParameters(requestData, HBL_PUBLIC_KEY);
+      console.log('✅ Request parameters encrypted successfully');
+    } else {
+      console.warn('⚠️ No HBL public key found - sending unencrypted data (this might fail)');
+    }
+
     const fetchOptions = {
       method: 'POST',
       headers: {
@@ -188,7 +228,7 @@ const callHBLPayAPI = async (requestData) => {
         'Accept': 'application/json',
         'User-Agent': 'NodeJS-HBLPay-Client/1.0'
       },
-      body: JSON.stringify(requestData),
+      body: JSON.stringify(finalRequestData),
       timeout: 30000
     };
 
@@ -197,7 +237,8 @@ const callHBLPayAPI = async (requestData) => {
       fetchOptions.agent = httpsAgent;
     }
 
-    console.log('📤 Sending request body:', JSON.stringify(requestData, null, 2));
+    console.log('📤 Sending encrypted request to HBL...');
+    // Don't log the encrypted body as it will be unreadable
 
     const response = await fetch(apiUrl, fetchOptions);
 

@@ -1,4 +1,4 @@
-// Fixed Checkout.jsx - Complete working version
+// Fixed Checkout.jsx - Updated for backend validation compatibility
 import React, { useState, useEffect, useContext } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { UserDataContext } from './components/CartSystem';
@@ -18,76 +18,6 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 
-// Country/State data from the Excel file
-const COUNTRY_STATE_DATA = [
-  { country: "Pakistan (PK)", state: "Islamabad", code: "IS" },
-  { country: "Pakistan (PK)", state: "Balochistan", code: "BA" },
-  { country: "Pakistan (PK)", state: "Khyber Pakhtunkhwa", code: "KP" },
-  { country: "Pakistan (PK)", state: "Punjab", code: "PB" },
-  { country: "Pakistan (PK)", state: "Sindh", code: "SD" },
-  { country: "Pakistan (PK)", state: "Azad Jammu and Kashmir", code: "JK" },
-  { country: "Pakistan (PK)", state: "Gilgit-Baltistan", code: "GB" },
-  { country: "Pakistan (PK)", state: "Federally Administered Tribal Areas", code: "TA" },
-  { country: "United States (US)", state: "Alabama", code: "AL" },
-  { country: "United States (US)", state: "Alaska", code: "AK" },
-  { country: "United States (US)", state: "Arizona", code: "AZ" },
-  { country: "United States (US)", state: "Arkansas", code: "AR" },
-  { country: "United States (US)", state: "California", code: "CA" },
-  { country: "United States (US)", state: "Colorado", code: "CO" },
-  // Add more countries/states as needed
-];
-
-const CountryStateSelector = ({ selectedCountry, selectedState, onCountryChange, onStateChange }) => {
-  const countries = [...new Set(COUNTRY_STATE_DATA.map(item => item.country))];
-  const states = COUNTRY_STATE_DATA.filter(item => item.country === selectedCountry);
-
-  return (
-    <div className="grid grid-cols-2 gap-4">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Country *
-        </label>
-        <select
-          value={selectedCountry}
-          onChange={(e) => {
-            onCountryChange(e.target.value);
-            onStateChange(''); // Reset state when country changes
-          }}
-          className="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          required
-        >
-          <option value="">Select Country</option>
-          {countries.map((country) => (
-            <option key={country} value={country}>
-              {country}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          State/Province *
-        </label>
-        <select
-          value={selectedState}
-          onChange={(e) => onStateChange(e.target.value)}
-          className="w-full px-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          required
-          disabled={!selectedCountry}
-        >
-          <option value="">Select State</option>
-          {states.map((item) => (
-            <option key={item.code} value={item.code}>
-              {item.state}
-            </option>
-          ))}
-        </select>
-      </div>
-    </div>
-  );
-};
-
 const Checkout = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -105,7 +35,7 @@ const Checkout = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Form data
+  // Form data - Changed structure to match backend expectations
   const [billingInfo, setBillingInfo] = useState({
     firstName: '',
     lastName: '',
@@ -113,7 +43,7 @@ const Checkout = () => {
     phone: '',
     address: '',
     city: '',
-    country: '',
+    country: 'PK', // Default to Pakistan country code
     state: '',
     postalCode: ''
   });
@@ -129,7 +59,7 @@ const Checkout = () => {
         phone: user.phone || ''
       }));
     }
-  }, [user]);
+  }, [checkoutItems, navigate]);
 
   // Redirect if no items to checkout
   useEffect(() => {
@@ -159,6 +89,13 @@ const Checkout = () => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(billingInfo.email)) {
       setError('Please enter a valid email address');
+      return false;
+    }
+
+    // Phone validation for Pakistani format
+    const phoneRegex = /^(\+92|0)?[0-9]{10}$/;
+    if (!phoneRegex.test(billingInfo.phone.replace(/\s/g, ''))) {
+      setError('Please enter a valid Pakistani phone number (e.g., 03001234567 or +923001234567)');
       return false;
     }
 
@@ -214,42 +151,40 @@ const Checkout = () => {
       const booking = bookingResponse.data.data;
       console.log('✅ Booking created:', booking);
 
-      // Step 2: Now create payment with the booking ID
+      // Step 2: Prepare payment data with correct structure
       const paymentData = {
         amount: parseFloat(totalAmount),
         currency: 'PKR',
-        bookingId: booking._id, // ✅ Now we have the booking ID!
+        bookingId: booking._id,
+        // FIXED: Use 'userData' key instead of 'billingInfo'
         userData: {
           firstName: billingInfo.firstName.trim(),
           lastName: billingInfo.lastName.trim(),
           email: billingInfo.email.trim().toLowerCase(),
-          phone: billingInfo.phone.trim(),
+          phone: billingInfo.phone.trim().replace(/\s/g, ''), // Remove spaces
           address: billingInfo.address.trim(),
           city: billingInfo.city.trim(),
-          state: billingInfo.state,
-          country: 'PK',
+          state: billingInfo.state, // Use state code (e.g., 'SD')
+          country: billingInfo.country, // Use country code (e.g., 'PK')
           postalCode: billingInfo.postalCode || ''
         },
         bookingData: {
           items: checkoutItems.map(item => ({
-            id: item.id || `room-${Date.now()}`,
             name: `${item.hotelName || 'Hotel'} - ${item.roomName || 'Room'}`,
             quantity: parseInt(item.quantity) || 1,
             price: parseFloat(item.price) || 0,
-            category: 'Hotel',
-            checkIn: item.checkIn,
-            checkOut: item.checkOut,
-            location: item.location
+            category: 'Hotel'
           })),
+          hotelName: checkoutItems[0]?.hotelName,
           checkIn: checkoutItems[0]?.checkIn,
           checkOut: checkoutItems[0]?.checkOut,
           totalAmount: parseFloat(totalAmount)
         }
       };
 
-      console.log('💳 Initiating payment with booking ID:', booking._id);
+      console.log('💳 Initiating payment with data:', paymentData);
 
-      // Call payment API with booking ID
+      // Call payment API
       const response = await axios.post(
         `${import.meta.env.VITE_BASE_URL}/api/payments/hblpay/initiate`,
         paymentData,
@@ -275,29 +210,21 @@ const Checkout = () => {
       console.error('❌ Payment error:', error);
       console.error('❌ Response data:', error.response?.data);
       console.error('❌ Response status:', error.response?.status);
-      console.error('❌ Response headers:', error.response?.headers);
       
       let errorMessage = 'Payment failed. Please try again.';
       
       if (error.response?.data) {
-        // Handle different error response formats
         if (error.response.data.message) {
           errorMessage = error.response.data.message;
-        } else if (error.response.data.data?.message) {
-          errorMessage = error.response.data.data.message;
-        } else if (error.response.data.errors) {
+        } else if (error.response.data.errors && Array.isArray(error.response.data.errors)) {
           // Handle validation errors array
-          const validationErrors = Array.isArray(error.response.data.errors) 
-            ? error.response.data.errors.map(err => err.msg || err.message).join(', ')
-            : JSON.stringify(error.response.data.errors);
+          const validationErrors = error.response.data.errors
+            .map(err => `${err.path || err.field}: ${err.msg || err.message}`)
+            .join('; ');
           errorMessage = `Validation errors: ${validationErrors}`;
         } else if (typeof error.response.data === 'string') {
           errorMessage = error.response.data;
-        } else {
-          errorMessage = `Server error (${error.response.status}): ${JSON.stringify(error.response.data)}`;
         }
-      } else if (error.message) {
-        errorMessage = error.message;
       }
       
       setError(errorMessage);
@@ -410,7 +337,7 @@ const Checkout = () => {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Phone Number * (Pakistani format: +92XXXXXXXXXX or 03XXXXXXXXX)
+                Phone Number *
               </label>
               <div className="relative">
                 <Phone className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
@@ -419,12 +346,12 @@ const Checkout = () => {
                   value={billingInfo.phone}
                   onChange={(e) => handleInputChange('phone', e.target.value)}
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="e.g., +923001234567 or 03001234567"
+                  placeholder="03001234567"
                   required
                 />
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                Format: +92 followed by 10 digits OR 0 followed by 10 digits
+                Pakistani format: 03001234567 (10 digits after 0)
               </p>
             </div>
           </div>
@@ -477,7 +404,7 @@ const Checkout = () => {
             </div>
           </div>
 
-          {/* Country and State - Fixed for Pakistan focus */}
+          {/* Country and State - FIXED to match backend validation */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -493,10 +420,11 @@ const Checkout = () => {
                 required
               >
                 <option value="">Select Country</option>
-                <option value="Pakistan">Pakistan</option>
-                <option value="United States">United States</option>
-                <option value="United Kingdom">United Kingdom</option>
-                <option value="Canada">Canada</option>
+                <option value="PK">Pakistan</option>
+                <option value="US">United States</option>
+                <option value="UK">United Kingdom</option>
+                <option value="CA">Canada</option>
+                {/* Add more countries as needed */}
               </select>
             </div>
 
@@ -514,29 +442,13 @@ const Checkout = () => {
                 <option value="">
                   {billingInfo.country ? 'Select State/Province' : 'Select Country First'}
                 </option>
-                {billingInfo.country === 'Pakistan' && (
+                {billingInfo.country === 'PK' && (
                   <>
                     <option value="IS">Islamabad</option>
                     <option value="BA">Balochistan</option>
                     <option value="KP">Khyber Pakhtunkhwa</option>
                     <option value="PB">Punjab</option>
                     <option value="SD">Sindh</option>
-                    <option value="JK">Azad Jammu and Kashmir</option>
-                    <option value="GB">Gilgit-Baltistan</option>
-                    <option value="TA">Federally Administered Tribal Areas</option>
-                  </>
-                )}
-                {billingInfo.country === 'United States' && (
-                  <>
-                    <option value="AL">Alabama</option>
-                    <option value="AK">Alaska</option>
-                    <option value="AZ">Arizona</option>
-                    <option value="AR">Arkansas</option>
-                    <option value="CA">California</option>
-                    <option value="CO">Colorado</option>
-                    <option value="FL">Florida</option>
-                    <option value="TX">Texas</option>
-                    <option value="NY">New York</option>
                   </>
                 )}
               </select>
@@ -601,7 +513,7 @@ const Checkout = () => {
         <div className="bg-gray-100 p-4 rounded-lg mb-4 text-xs">
           <h4 className="font-medium mb-2">Debug Info:</h4>
           <pre>{JSON.stringify({
-            billingInfo,
+            userData: billingInfo, // Changed from billingInfo to userData for clarity
             checkoutItems: checkoutItems?.length || 0,
             totalAmount,
             user: user?.email || 'Not logged in'
