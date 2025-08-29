@@ -12,7 +12,7 @@ const HBLPAY_PASSWORD = process.env.HBLPAY_PASSWORD || 'd6n26Yd4m!';
 const HBL_PUBLIC_KEY = process.env.HBL_PUBLIC_KEY_PEM;
 const HBL_SANDBOX_URL = process.env.HBL_SANDBOX_API_URL || 'https://testpaymentapi.hbl.com/hblpay/api/checkout';
 const HBL_PRODUCTION_URL = process.env.HBL_PRODUCTION_API_URL;
-const HBL_SANDBOX_REDIRECT = process.env.HBL_SANDBOX_REDIRECT_URL || 'https://testpaymentapi.hbl.com/HBLPay/site/index.html#/checkout?data=';
+const HBL_SANDBOX_REDIRECT = process.env.HBL_SANDBOX_REDIRECT_URL || 'https://testpaymentapi.hbl.com/hblpay/site/index.html#/checkout?data=';
 const HBL_PRODUCTION_REDIRECT = process.env.HBL_PRODUCTION_REDIRECT_URL;
 const HBL_CHANNEL = 'HBLPay_Teli_Website'; // Your HBL-provided channel
 const HBL_TYPE_ID = '0'; // Keep as '0' per documentation
@@ -160,26 +160,28 @@ const buildHBLPayRequest = (paymentData, userId) => {
       "SHIP_TO_ADDRESS_COUNTRY": userData?.country || "US",
       "SHIP_TO_ADDRESS_POSTAL_CODE": userData?.postalCode || "94043",
       "MerchantFields": {
-        "MDD1": "mdd1",
-        "MDD2": "mdd2", 
-        "MDD3": "mdd3",
-        "MDD4": "mdd4",
-        "MDD5": "mdd5",
-        "MDD6": "mdd6",
-        "MDD7": "mdd7",
-        "MDD8": "mdd8",
-        "MDD9": "mdd9",
-        "MDD10": "mdd10",
-        "MDD11": "mdd11",
-        "MDD12": "mdd12",
-        "MDD13": "mdd13",
-        "MDD14": "mdd14",
-        "MDD15": "mdd15",
-        "MDD16": "mdd16",
-        "MDD17": "mdd17",
-        "MDD18": "mdd18",
-        "MDD19": "mdd19",
-        "MDD20": "mdd20"
+        "MDD1": HBL_CHANNEL, // Channel of Operation (Required)
+        "MDD2": "N", // 3D Secure Registration (Optional)
+        "MDD3": "Hotel", // Product Category (Optional)
+        "MDD4": bookingData?.hotelName || "Hotel Booking", // Product Name (Optional)
+        "MDD5": userData?.customerId ? "Y" : "N", // Previous Customer (Optional)
+        "MDD6": "Digital", // Shipping Method (Optional)
+        "MDD7": bookingData?.items?.length?.toString() || "1", // Number Of Items Sold (Optional)
+        "MDD8": "PK", // Product Shipping Country Name (Optional)
+        "MDD9": "0", // Hours Till Departure (Optional)
+        "MDD10": "Hotel", // Flight Type (Optional)
+        "MDD11": bookingData?.checkIn && bookingData?.checkOut 
+          ? `${bookingData.checkIn} to ${bookingData.checkOut}` 
+          : "N/A", // Full Journey/Itinerary (Optional)
+        "MDD12": "N", // 3rd Party Booking (Optional)
+        "MDD13": bookingData?.hotelName || "Hotel", // Hotel Name (Optional)
+        "MDD14": new Date().toISOString().split('T')[0], // Date of Booking (Optional) 
+        "MDD15": bookingData?.checkIn || "", // Check In Date (Optional)
+        "MDD16": bookingData?.checkOut || "", // Check Out Date (Optional)
+        "MDD17": "Hotel", // Product Type (Optional)
+        "MDD18": userData?.phone || userData?.email || "", // Customer ID/Phone Number (Optional)
+        "MDD19": userData?.country || "PK", // Country Of Top-up (Optional)
+        "MDD20": "N" // VIP Customer (Optional) 
       }
     }
   };
