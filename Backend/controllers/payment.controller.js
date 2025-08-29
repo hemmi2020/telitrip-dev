@@ -6,14 +6,14 @@ const ApiResponse = require('../utils/response.util');
 const { asyncErrorHandler } = require('../middlewares/errorHandler.middleware');  
 const notificationService = require('../services/notification.service');
 
-// HBLPay Configuration - Use your actual HBL-provided credentials
-const HBLPAY_USER_ID = process.env.HBLPAY_USER_ID || 'teliadmin';
+// HBLPay Configuration - Use your actual HBL-provided credentials 
+const HBLPAY_USER_ID = process.env.HBLPAY_USER_ID || 'teliadmin'; 
 const HBLPAY_PASSWORD = process.env.HBLPAY_PASSWORD || 'd6n26Yd4m!';
 const HBL_PUBLIC_KEY = process.env.HBL_PUBLIC_KEY_PEM;
 const HBL_SANDBOX_URL = process.env.HBL_SANDBOX_API_URL || 'https://testpaymentapi.hbl.com/hblpay/api/checkout';
 const HBL_PRODUCTION_URL = process.env.HBL_PRODUCTION_API_URL;
 const HBL_SANDBOX_REDIRECT = process.env.HBL_SANDBOX_REDIRECT_URL || 'https://testpaymentapi.hbl.com/hblpay/site/index.html#/checkout?data=';
-const HBL_PRODUCTION_REDIRECT = process.env.HBL_PRODUCTION_REDIRECT_URL;
+const HBL_PRODUCTION_REDIRECT = process.env.HBL_PRODUCTION_REDIRECT_URL;   
 const HBL_CHANNEL = 'HBLPay_Teli_Website'; // Your HBL-provided channel
 const HBL_TYPE_ID = '0'; // Keep as '0' per documentation
 
@@ -275,11 +275,30 @@ const callHBLPayAPI = async (requestData) => {
 };
 
 // Build redirect URL
+// Build redirect URL with proper debugging
 const buildRedirectUrl = (sessionId) => {
   const baseUrl = isProduction ? HBL_PRODUCTION_REDIRECT : HBL_SANDBOX_REDIRECT;
-  // Encode session ID for URL
   const encodedSessionId = Buffer.from(sessionId).toString('base64');
-  return `${baseUrl}${encodedSessionId}`;
+  
+  console.log('🔗 Building redirect URL:', {
+    baseUrl: baseUrl,
+    rawSessionId: sessionId.substring(0, 50) + '...',
+    encodedSessionId: encodedSessionId.substring(0, 50) + '...',
+    baseUrlEndsWithEquals: baseUrl.endsWith('='),
+    hasHashFragment: baseUrl.includes('#')
+  });
+  
+  const finalUrl = `${baseUrl}${encodedSessionId}`;
+  
+  console.log('🎯 Final redirect URL:', {
+    fullUrl: finalUrl.substring(0, 100) + '...',
+    urlLength: finalUrl.length,
+    hasHash: finalUrl.includes('#'),
+    hasCheckout: finalUrl.includes('checkout'),
+    hasData: finalUrl.includes('data=')
+  });
+  
+  return finalUrl;
 };
 
 // Create HBLPay payment session
