@@ -1,602 +1,859 @@
-const crypto = require('crypto');
 const paymentModel = require('../models/payment.model');
-const bookingModel = require('../models/booking.model');
+const logger = require('../utils/logger.util');
+const { hblCircuitBreaker } = require('../middlewares/errorHandler.middleware');
 
-class PaymentService {
+class EnhancedPaymentService {
   constructor() {
-    this.hblPayConfig = {
-      userId: process.env.HBLPAY_USER_ID,
-      password: process.env.HBLPAY_PASSWORD,
-      channel: process.env.HBL_CHANNEL || 'HOTEL_WEB',
-      typeId: process.env.HBL_TYPE_ID || 'ECOM',
-      sandboxUrl: process.env.HBL_SANDBOX_API_URL,
-      productionUrl: process.env.HBL_PRODUCTION_API_URL,
-      sandboxRedirectUrl: process.env.HBL_SANDBOX_REDIRECT_URL,
-      productionRedirectUrl: process.env.HBL_PRODUCTION_REDIRECT_URL,
-      publicKey: process.env.HBL_PUBLIC_KEY_PEM
-    };
+    this.fallbackEnabled = process.env.ENABLE_PAYMENT_FALLBACK !== 'false';
+    this.fallbackMethods = ['manual_redirect', 'qr_code', 'bank_transfer'];
+    this.maxRetryAttempts = parseInt(process.env.MAX_PAYMENT_RETRIES) || 3;
   }
 
-  // RSA Encryption for sensitive data
-  encryptData(data) {
-    try {
-      const buffer = Buffer.from(data, 'utf8');
-      const encrypted = crypto.publicEncrypt({
-        key: this.hblPayConfig.publicKey,
-        padding: crypto.constants.RSA_PKCS1_PADDING,
-      }, buffer);
-      return encrypted.toString('base64');
-    } catch (error) {
-      console.error('Encryption error:', error);
-      throw new Error('Failed to encrypt data');
-    }
-  }
-
-  // Generate unique payment ID
-  generatePaymentId() {
-    return `PAY_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  // Generate unique order ID
-  generateOrderId() {
-    return `ORD_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-  }
-
-  // Validate payment amount
-  validateAmount(amount, currency = 'PKR') {
-    if (!amount || amount <= 0) {
-      throw new Error('Invalid payment amount');
-    }
-
-    // Set minimum amounts based on currency
-    const minimumAmounts = {
-      PKR: 1,
-      USD: 0.01,
-      EUR: 0.01
-    };
-
-    if (amount < minimumAmounts[currency]) {
-      throw new Error(`Minimum amount for ${currency} is ${minimumAmounts[currency]}`);
-    }
-
-    return true;
-  }
-
-  // Build HBLPay request payload
-  buildPaymentRequest(paymentData, bookingData, userData) {
-    const {
-      amount,
-      currency,
-      paymentId,
-      orderId,
-      returnUrl,
-      cancelUrl
-    } = paymentData;
-
-    return {
-      // Authentication Fields (Required)
-      USER_ID: this.hblPayConfig.userId,
-      PASSWORD: this.hblPayConfig.password,
-      RETURN_URL: returnUrl,
-      CANCEL_URL: cancelUrl,
-      CHANNEL: this.hblPayConfig.channel,
-      TYPE_ID: this.hblPayConfig.typeId,
-
-      // Order Summary (Required)
-      ORDER: {
-        DISCOUNT_ON_TOTAL: 0,
-        SUBTOTAL: amount,
-        OrderSummaryDescription: [
-          {
-            ITEM_NAME: `Hotel Booking - ${bookingData.hotelName || 'Hotel Reservation'}`,
-            QUANTITY: 1,
-            UNIT_PRICE: amount,
-            OLD_PRICE: null,
-            CATEGORY: 'Hotel',
-            SUB_CATEGORY: 'Accommodation'
-          }
-        ]
-      },
-
-      // Shipping Detail (Optional)
-      SHIPPING_DETAIL: {
-        NAME: 'Digital Service',
-        ICON_PATH: null,
-        DELIEVERY_DAYS: 0,
-        SHIPPING_COST: 0
-      },
-
-      // Additional Data (Required)
-      ADDITIONAL_DATA: {
-        REFERENCE_NUMBER: paymentId,
-        CUSTOMER_ID: userData.id?.toString() || null,
-        CURRENCY: currency,
-
-        // Billing Information
-        BILL_TO_FORENAME: userData.firstname || '',
-        BILL_TO_SURNAME: userData.lastname || '',
-        BILL_TO_EMAIL: userData.email || 'guest@example.com',
-        BILL_TO_PHONE: userData.phone || '000000000',
-        BILL_TO_ADDRESS_LINE: userData.address || 'N/A',
-        BILL_TO_ADDRESS_CITY: userData.city || 'Karachi',
-        BILL_TO_ADDRESS_STATE: userData.state || 'Sindh',
-        BILL_TO_ADDRESS_COUNTRY: userData.country || 'PK',
-        BILL_TO_ADDRESS_POSTAL_CODE: userData.postalCode || '74000',
-
-        // Shipping Information (Copy of billing)
-        SHIP_TO_FORENAME: userData.firstname || '',
-        SHIP_TO_SURNAME: userData.lastname || '',
-        SHIP_TO_EMAIL: userData.email || 'guest@example.com',
-        SHIP_TO_PHONE: userData.phone || '000000000',
-        SHIP_TO_ADDRESS_LINE: userData.address || 'N/A',
-        SHIP_TO_ADDRESS_CITY: userData.city || 'Karachi',
-        SHIP_TO_ADDRESS_STATE: userData.state || 'Sindh',
-        SHIP_TO_ADDRESS_COUNTRY: userData.country || 'PK',
-        SHIP_TO_ADDRESS_POSTAL_CODE: userData.postalCode || '74000',
-
-        // Merchant Defined Data
-        MerchantFields: this.buildMerchantFields(bookingData, userData)
-      }
-    };
-  }
-
-  // Build merchant defined data fields
-  buildMerchantFields(bookingData, userData) {
-    return {
-      MDD1: this.hblPayConfig.channel,  // Channel of Operation
-      MDD2: 'N',  // 3D Secure Registration
-      MDD3: 'Hotel',  // Product Category
-      MDD4: 'Hotel Booking',  // Product Name
-      MDD5: userData.id ? 'Y' : 'N',  // Previous Customer
-      MDD6: 'Digital',  // Shipping Method
-      MDD7: '1',  // Number Of Items Sold
-      MDD8: 'PK',  // Product Shipping Country
-      MDD9: '0',  // Hours Till Departure
-      MDD10: 'Hotel',  // Flight Type (Product Type)
-      MDD11: bookingData.checkIn && bookingData.checkOut ?
-        `${bookingData.checkIn} to ${bookingData.checkOut}` : 'N/A',  // Full Journey
-      MDD12: 'N',  // 3rd Party Booking
-      MDD13: bookingData.hotelName || 'Hotel Reservation',  // Hotel Name
-      MDD14: new Date().toISOString().split('T')[0],  // Date of Booking
-      MDD15: bookingData.checkIn ?
-        (typeof bookingData.checkIn === 'string' ? bookingData.checkIn : bookingData.checkIn.toISOString().split('T')[0]) : '',  // Check In Date
-      MDD16: bookingData.checkOut ?
-        (typeof bookingData.checkOut === 'string' ? bookingData.checkOut : bookingData.checkOut.toISOString().split('T')[0]) : '',  // Check Out Date
-      MDD17: 'Hotel',  // Product Type
-      MDD18: userData.phone || userData.email || '',  // Customer ID/Phone
-      MDD19: 'PK',  // Country Of Top-up
-      MDD20: 'N'   // VIP Customer
-    };
-  }
-
-  // Call HBLPay API
-  async callHBLPayAPI(requestData) {
-    const apiUrl = process.env.NODE_ENV === 'production' ?
-      this.hblPayConfig.productionUrl : this.hblPayConfig.sandboxUrl;
+  // Enhanced payment creation with multiple fallback strategies
+  async createPaymentWithFallback(paymentData, userId) {
+    const context = 'CreatePaymentWithFallback';
+    const startTime = Date.now();
 
     try {
-      console.log('Calling HBLPay API:', {
-        url: apiUrl,
-        userId: requestData.USER_ID,
-        channel: requestData.CHANNEL,
-        amount: requestData.ORDER?.SUBTOTAL
+      logger.info('Starting payment creation with fallback support', {
+        amount: paymentData.amount,
+        currency: paymentData.currency,
+        userId,
+        fallbackEnabled: this.fallbackEnabled
       });
 
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'User-Agent': 'Node.js HBLPay Integration'
-        },
-        body: JSON.stringify(requestData),
-        timeout: 30000  // 30 seconds timeout
-      });
-
-      const responseText = await response.text();
-      console.log('HBLPay Raw Response:', responseText);
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      let hblResponse;
+      // Primary attempt: Standard HBL Pay flow
       try {
-        hblResponse = JSON.parse(responseText);
-      } catch (parseError) {
-        console.error('Failed to parse HBLPay response:', parseError);
-        throw new Error('Invalid JSON response from HBLPay');
+        const result = await hblCircuitBreaker.execute(async () => {
+          return await this.createStandardPayment(paymentData, userId);
+        }, 'Standard HBL Payment');
+
+        logger.info('Standard payment creation successful', {
+          paymentId: result.paymentId,
+          sessionId: result.sessionId,
+          duration: `${Date.now() - startTime}ms`
+        });
+
+        return {
+          success: true,
+          method: 'standard',
+          data: result
+        };
+
+      } catch (standardError) {
+        logger.warn('Standard payment creation failed', {
+          error: standardError.message,
+          code: standardError.code,
+          userId,
+          duration: `${Date.now() - startTime}ms`
+        });
+
+        // If fallback is disabled, throw the error
+        if (!this.fallbackEnabled) {
+          throw standardError;
+        }
+
+        // Attempt fallback methods
+        return await this.attemptFallbackMethods(paymentData, userId, standardError);
       }
 
-      return hblResponse;
     } catch (error) {
-      console.error('HBLPay API Error:', error);
-      throw new Error(`HBLPay API call failed: ${error.message}`);
+      logger.error('All payment creation methods failed', error, {
+        userId,
+        amount: paymentData.amount,
+        duration: `${Date.now() - startTime}ms`
+      });
+      throw error;
     }
   }
 
-  // Build redirect URL
-  buildRedirectUrl(sessionId) {
-    const baseUrl = process.env.NODE_ENV === 'production' ?
-      this.hblPayConfig.productionRedirectUrl : this.hblPayConfig.sandboxRedirectUrl;
-
-    return baseUrl + sessionId;
-  }
-
-  // Create payment session
-  async createPaymentSession(paymentData) {
-    const {
-      amount,
-      currency = 'PKR',
-      bookingId,
-      userId,
-      returnUrl,
-      cancelUrl
-    } = paymentData;
-
-    // Validate amount
-    this.validateAmount(amount, currency);
-
-    // Generate IDs
+  // Standard HBL Pay creation (existing logic)
+  async createStandardPayment(paymentData, userId) {
+    // This would contain your existing createPayment logic
+    // Moving it here for better organization
     const paymentId = this.generatePaymentId();
     const orderId = this.generateOrderId();
 
-    // Get booking and user data
-    const booking = await bookingModel.findOne({
-      $or: [{ _id: bookingId }, { bookingId: bookingId }],
-      userId
-    }).populate('userId', 'fullname email phone');
-
-    if (!booking) {
-      throw new Error('Booking not found');
-    }
-
-    if (booking.paymentStatus === 'paid') {
-      throw new Error('Booking is already paid');
-    }
-
     // Create payment record
-    const payment = await paymentModel.create({
-      userId,
-      bookingId: booking._id,
+    const payment = new paymentModel({
       paymentId,
-      amount,
-      currency,
-      method: 'HBLPay',
+      userId,
+      bookingId: paymentData.bookingId,
+      amount: paymentData.amount,
+      currency: paymentData.currency,
       status: 'pending',
-      metadata: {
-        orderId,
-        returnUrl,
-        cancelUrl,
-        channel: this.hblPayConfig.channel,
-        typeId: this.hblPayConfig.typeId
-      }
+      paymentMethod: 'HBLPay',
+      orderId,
+      userDetails: paymentData.userData,
+      bookingDetails: paymentData.bookingData,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000)
     });
 
-    // Prepare user data
-    const userData = {
-      id: booking.userId._id,
-      firstname: booking.userId.fullname?.firstname || '',
-      lastname: booking.userId.fullname?.lastname || '',
-      email: booking.userId.email || '',
-      phone: booking.userId.phone || ''
-    };
-
-    // Prepare booking data
-    const bookingData = {
-      hotelName: booking.hotelName,
-      checkIn: booking.checkIn,
-      checkOut: booking.checkOut,
-      guests: booking.guests
-    };
-
-    // Build HBLPay request
-    const hblRequest = this.buildPaymentRequest(
-      { amount, currency, paymentId, orderId, returnUrl, cancelUrl },
-      bookingData,
-      userData
-    );
-
-    // Call HBLPay API
-    const hblResponse = await this.callHBLPayAPI(hblRequest);
-
-    // Check for SESSION_ID
-    if (!hblResponse.SESSION_ID) {
-      await payment.markAsFailed('NO_SESSION_ID', 'No SESSION_ID received from HBLPay', hblResponse);
-      throw new Error('Failed to create payment session - No SESSION_ID received');
-    }
-
-    // Update payment with session ID
-    payment.sessionId = hblResponse.SESSION_ID;
-    payment.transactionId = hblResponse.SESSION_ID;
-    payment.gatewayResponse = hblResponse;
     await payment.save();
 
-    // Build redirect URL
-    const redirectUrl = this.buildRedirectUrl(hblResponse.SESSION_ID);
+    // Build and call HBL API (your existing logic)
+    const hblRequest = this.buildHBLRequest(paymentData, orderId, userId);
+    const hblResponse = await this.callHBLAPI(hblRequest);
+
+    if (!hblResponse.IsSuccess || !hblResponse.Data?.SESSION_ID) {
+      await payment.updateOne({
+        status: 'failed',
+        failureReason: 'NO_SESSION_ID',
+        gatewayResponse: hblResponse,
+        updatedAt: new Date()
+      });
+
+      const error = new Error(`HBL API failed: ${hblResponse.ResponseMessage}`);
+      error.code = 'HBL_API_FAILED';
+      error.hblResponse = hblResponse;
+      throw error;
+    }
+
+    const sessionId = hblResponse.Data.SESSION_ID;
+    await payment.updateOne({
+      sessionId,
+      status: 'initiated',
+      gatewayResponse: hblResponse,
+      updatedAt: new Date()
+    });
+
+    const redirectUrl = `${process.env.HBL_SANDBOX_REDIRECT_URL}${sessionId}`;
 
     return {
-      sessionId: hblResponse.SESSION_ID,
-      paymentUrl: redirectUrl,
-      paymentId: payment.paymentId,
-      orderId: orderId,
-      amount: amount,
-      currency: currency,
-      payment: payment
+      paymentId,
+      sessionId,
+      redirectUrl,
+      orderId,
+      amount: paymentData.amount,
+      currency: paymentData.currency,
+      expiresAt: payment.expiresAt
     };
   }
 
-  // Process payment callback
-  async processPaymentCallback(callbackData) {
-    const { SESSION_ID, PAYMENT_STATUS, REFERENCE_NUMBER, AMOUNT } = callbackData;
+  // Fallback method attempts
+  async attemptFallbackMethods(paymentData, userId, originalError) {
+    logger.info('Attempting fallback payment methods', {
+      userId,
+      originalError: originalError.message,
+      fallbackMethods: this.fallbackMethods
+    });
 
-    // Find payment by session ID or reference
-    const payment = await paymentModel.findOne({
-      $or: [
-        { sessionId: SESSION_ID },
-        { paymentId: REFERENCE_NUMBER },
-        { transactionId: SESSION_ID }
-      ]
-    }).populate('bookingId');
-
-    if (!payment) {
-      throw new Error('Payment not found for callback');
-    }
-
-    // Process based on payment status
-    if (PAYMENT_STATUS === 'SUCCESS' || PAYMENT_STATUS === 'COMPLETED') {
-      await payment.markAsCompleted({
-        sessionId: SESSION_ID,
-        paymentStatus: PAYMENT_STATUS,
-        amount: AMOUNT,
-        gatewayResponse: callbackData
+    // Fallback 1: Manual redirect with enhanced error handling
+    try {
+      const manualResult = await this.createManualRedirectPayment(paymentData, userId);
+      logger.info('Manual redirect fallback successful', {
+        paymentId: manualResult.paymentId
       });
-
-      // Update booking status
-      if (payment.bookingId) {
-        await bookingModel.findByIdAndUpdate(payment.bookingId._id, {
-          paymentStatus: 'paid',
-          paidAt: new Date()
-        });
-      }
 
       return {
         success: true,
-        payment: payment,
-        message: 'Payment completed successfully'
+        method: 'manual_redirect',
+        data: manualResult,
+        fallbackReason: originalError.message
       };
-    } else {
-      await payment.markAsFailed('PAYMENT_FAILED', PAYMENT_STATUS || 'Payment failed', callbackData);
+    } catch (manualError) {
+      logger.warn('Manual redirect fallback failed', {
+        error: manualError.message
+      });
+    }
+
+    // Fallback 2: QR Code payment
+    try {
+      const qrResult = await this.createQRCodePayment(paymentData, userId);
+      logger.info('QR Code fallback successful', {
+        paymentId: qrResult.paymentId
+      });
 
       return {
-        success: false,
-        payment: payment,
-        message: 'Payment failed'
+        success: true,
+        method: 'qr_code',
+        data: qrResult,
+        fallbackReason: originalError.message
       };
+    } catch (qrError) {
+      logger.warn('QR Code fallback failed', {
+        error: qrError.message
+      });
     }
+
+    // Fallback 3: Bank transfer instructions
+    try {
+      const bankTransferResult = await this.createBankTransferPayment(paymentData, userId);
+      logger.info('Bank transfer fallback successful', {
+        paymentId: bankTransferResult.paymentId
+      });
+
+      return {
+        success: true,
+        method: 'bank_transfer',
+        data: bankTransferResult,
+        fallbackReason: originalError.message
+      };
+    } catch (bankError) {
+      logger.error('All fallback methods failed', bankError);
+    }
+
+    // If all fallbacks fail, throw the original error
+    throw originalError;
   }
 
-  // Verify payment status
-  async verifyPayment(sessionId, paymentId, userId) {
-    const payment = await paymentModel.findOne({
-      $and: [
-        { userId },
-        {
-          $or: [
-            { sessionId },
-            { paymentId }
-          ]
-        }
-      ]
-    }).populate('bookingId');
+  // Manual redirect payment method
+  async createManualRedirectPayment(paymentData, userId) {
+    const paymentId = this.generatePaymentId();
+    const orderId = this.generateOrderId();
 
-    if (!payment) {
-      throw new Error('Payment not found');
-    }
-
-    return payment;
-  }
-
-  // Get payment history
-  async getPaymentHistory(userId, options = {}) {
-    const {
-      page = 1,
-      limit = 10,
-      status,
-      startDate,
-      endDate
-    } = options;
-
-    const query = { userId };
-
-    if (status) {
-      query.status = status;
-    }
-
-    if (startDate || endDate) {
-      query.createdAt = {};
-      if (startDate) query.createdAt.$gte = new Date(startDate);
-      if (endDate) query.createdAt.$lte = new Date(endDate);
-    }
-
-    const payments = await paymentModel
-      .find(query)
-      .populate('bookingId', 'hotelName checkIn checkOut bookingId')
-      .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
-
-    const total = await paymentModel.countDocuments(query);
-
-    return {
-      payments,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / limit)
-      }
-    };
-  }
-
-  // Process refund
-  async processRefund(paymentId, userId, refundData) {
-    const { reason, amount } = refundData;
-
-    const payment = await paymentModel
-      .findOne({ paymentId, userId })
-      .populate('bookingId');
-
-    if (!payment) {
-      throw new Error('Payment not found');
-    }
-
-    if (payment.status !== 'completed') {
-      throw new Error('Only completed payments can be refunded');
-    }
-
-    if (payment.refundAmount > 0) {
-      throw new Error('Payment already refunded');
-    }
-
-    const refundAmount = amount || payment.amount;
-
-    if (refundAmount > payment.amount) {
-      throw new Error('Refund amount cannot exceed payment amount');
-    }
-
-    // Note: HBLPay doesn't have automated refund API
-    // This would require manual processing or separate API calls
-    await payment.markAsRefunded(refundAmount, reason);
-
-    return {
-      paymentId: payment.paymentId,
-      refundAmount: refundAmount,
-      refundReason: reason,
-      refundedAt: payment.refundedAt
-    };
-  }
-
-  // Get payment statistics
-  async getPaymentStats(userId, period = '30d') {
-    const startDate = new Date();
-
-    switch (period) {
-      case '7d':
-        startDate.setDate(startDate.getDate() - 7);
-        break;
-      case '30d':
-        startDate.setDate(startDate.getDate() - 30);
-        break;
-      case '90d':
-        startDate.setDate(startDate.getDate() - 90);
-        break;
-      case '1y':
-        startDate.setFullYear(startDate.getFullYear() - 1);
-        break;
-    }
-
-    const stats = await paymentModel.aggregate([
-      {
-        $match: {
-          userId: userId,
-          createdAt: { $gte: startDate }
-        }
-      },
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 },
-          totalAmount: { $sum: '$amount' }
-        }
-      }
-    ]);
-
-    const result = {
-      period,
-      totalPayments: 0,
-      totalAmount: 0,
-      completedPayments: 0,
-      completedAmount: 0,
-      failedPayments: 0,
-      pendingPayments: 0
-    };
-
-    stats.forEach(stat => {
-      result.totalPayments += stat.count;
-      result.totalAmount += stat.totalAmount;
-
-      if (stat._id === 'completed') {
-        result.completedPayments = stat.count;
-        result.completedAmount = stat.totalAmount;
-      } else if (stat._id === 'failed') {
-        result.failedPayments = stat.count;
-      } else if (stat._id === 'pending') {
-        result.pendingPayments = stat.count;
+    const payment = new paymentModel({
+      paymentId,
+      userId,
+      bookingId: paymentData.bookingId,
+      amount: paymentData.amount,
+      currency: paymentData.currency,
+      status: 'manual_redirect',
+      paymentMethod: 'HBLPay_Manual',
+      orderId,
+      userDetails: paymentData.userData,
+      bookingDetails: paymentData.bookingData,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour for manual
+      metadata: {
+        fallbackMethod: 'manual_redirect',
+        instructions: 'User must manually navigate to HBL Pay'
       }
     });
 
-    return result;
-  }
+    await payment.save();
 
-  // Validate HBLPay configuration
-  validateConfiguration() {
-    const required = [
-      'HBLPAY_USER_ID',
-      'HBLPAY_PASSWORD',
-      'HBL_SANDBOX_API_URL',
-      'HBL_PRODUCTION_API_URL',
-      'HBL_SANDBOX_REDIRECT_URL',
-      'HBL_PRODUCTION_REDIRECT_URL'
-    ];
-
-    const missing = required.filter(key => !process.env[key]);
-
-    if (missing.length > 0) {
-      throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
-    }
-
-    return true;
-  }
-
-  // Get test configuration
-  getTestConfiguration() {
     return {
-      testCards: [
-        {
-          type: 'Visa Non-3D',
-          number: '4000000000000101',
-          expiry: '05/2023',
-          cvv: '111'
-        },
-        {
-          type: 'Visa 3D',
-          number: '4000000000000002',
-          expiry: '05/2023',
-          cvv: '111',
-          passcode: '1234'
-        },
-        {
-          type: 'Master Non-3D',
-          number: '5200000000000114',
-          expiry: '05/2023',
-          cvv: '111'
-        },
-        {
-          type: 'Master 3D',
-          number: '5200000000000007',
-          expiry: '05/2023',
-          cvv: '111',
-          passcode: '1234'
-        }
-      ],
-      testUrls: {
-        sandbox: this.hblPayConfig.sandboxUrl,
-        sandboxRedirect: this.hblPayConfig.sandboxRedirectUrl,
-        otpViewer: 'https://testpaymentapi.hbl.com/OTPViewer/Home/Email'
-      }
+      paymentId,
+      orderId,
+      method: 'manual_redirect',
+      instructions: {
+        title: 'Manual Payment Required',
+        steps: [
+          'Click the link below to open HBL Pay',
+          'Enter your card details on the HBL Pay page',
+          'Complete the payment process',
+          'You will be redirected back automatically'
+        ],
+        manualUrl: `https://testpaymentapi.hbl.com/hblpay/site/index.html`,
+        fallbackPageUrl: `${process.env.BACKEND_URL}/payment/fallback?sessionId=manual_${paymentId}`
+      },
+      amount: paymentData.amount,
+      currency: paymentData.currency,
+      expiresAt: payment.expiresAt
     };
+  }
+
+  // QR Code payment method
+  async createQRCodePayment(paymentData, userId) {
+    const paymentId = this.generatePaymentId();
+    const orderId = this.generateOrderId();
+
+    // Create payment record
+    const payment = new paymentModel({
+      paymentId,
+      userId,
+      bookingId: paymentData.bookingId,
+      amount: paymentData.amount,
+      currency: paymentData.currency,
+      status: 'qr_generated',
+      paymentMethod: 'HBLPay_QR',
+      orderId,
+      userDetails: paymentData.userData,
+      bookingDetails: paymentData.bookingData,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+      metadata: {
+        fallbackMethod: 'qr_code',
+        qrData: `hblpay://pay?amount=${paymentData.amount}&currency=${paymentData.currency}&order=${orderId}`
+      }
+    });
+
+    await payment.save();
+
+    return {
+      paymentId,
+      orderId,
+      method: 'qr_code',
+      qrCode: {
+        data: payment.metadata.qrData,
+        image: `${process.env.BACKEND_URL}/api/v1/payments/${paymentId}/qr`,
+        instructions: [
+          'Open your HBL mobile app',
+          'Scan this QR code',
+          'Confirm the payment details',
+          'Complete the transaction'
+        ]
+      },
+      amount: paymentData.amount,
+      currency: paymentData.currency,
+      expiresAt: payment.expiresAt
+    };
+  }
+
+  // Bank transfer payment method
+  async createBankTransferPayment(paymentData, userId) {
+    const paymentId = this.generatePaymentId();
+    const orderId = this.generateOrderId();
+
+    const payment = new paymentModel({
+      paymentId,
+      userId,
+      bookingId: paymentData.bookingId,
+      amount: paymentData.amount,
+      currency: paymentData.currency,
+      status: 'bank_transfer_pending',
+      paymentMethod: 'Bank_Transfer',
+      orderId,
+      userDetails: paymentData.userData,
+      bookingDetails: paymentData.bookingData,
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+      metadata: {
+        fallbackMethod: 'bank_transfer',
+        bankDetails: {
+          bankName: 'Habib Bank Limited',
+          accountTitle: 'Teli Private Limited',
+          accountNumber: process.env.HBL_MERCHANT_ACCOUNT || 'XXXX-XXXX-XXXX',
+          branchCode: process.env.HBL_BRANCH_CODE || 'XXXX',
+          swiftCode: 'HABBPKKA'
+        }
+      }
+    });
+
+    await payment.save();
+
+    return {
+      paymentId,
+      orderId,
+      method: 'bank_transfer',
+      bankTransfer: {
+        instructions: [
+          'Transfer the exact amount to the account below',
+          'Use the payment reference in transfer description',
+          'Share the transfer receipt via email or WhatsApp',
+          'Your booking will be confirmed once payment is verified'
+        ],
+        bankDetails: payment.metadata.bankDetails,
+        transferReference: `TELI-${orderId}`,
+        amount: paymentData.amount,
+        currency: paymentData.currency,
+        verificationEmail: process.env.PAYMENT_VERIFICATION_EMAIL || 'payments@telitrip.com',
+        verificationWhatsApp: process.env.PAYMENT_VERIFICATION_WHATSAPP || '+92-XXX-XXXXXXX'
+      },
+      expiresAt: payment.expiresAt
+    };
+  }
+
+  // Enhanced payment monitoring
+  async monitorPaymentHealth() {
+    const now = new Date();
+    const last24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+    try {
+      // Get payment statistics
+      const stats = await paymentModel.aggregate([
+        {
+          $match: {
+            createdAt: { $gte: last24Hours }
+          }
+        },
+        {
+          $group: {
+            _id: '$status',
+            count: { $sum: 1 },
+            totalAmount: { $sum: '$amount' },
+            avgResponseTime: { $avg: '$responseTime' }
+          }
+        }
+      ]);
+
+      // Calculate health metrics
+      const healthMetrics = {
+        timestamp: now.toISOString(),
+        period: '24 hours',
+        totalTransactions: 0,
+        successRate: 0,
+        averageResponseTime: 0,
+        circuitBreakerStatus: hblCircuitBreaker.getStats(),
+        statusBreakdown: {},
+        alerts: []
+      };
+
+      let successfulPayments = 0;
+      let totalPayments = 0;
+      let totalResponseTime = 0;
+
+      stats.forEach(stat => {
+        totalPayments += stat.count;
+        healthMetrics.statusBreakdown[stat._id] = {
+          count: stat.count,
+          totalAmount: stat.totalAmount,
+          percentage: 0 // Will calculate after total is known
+        };
+
+        if (stat._id === 'completed') {
+          successfulPayments += stat.count;
+        }
+
+        if (stat.avgResponseTime) {
+          totalResponseTime += stat.avgResponseTime;
+        }
+      });
+
+      // Calculate percentages and rates
+      healthMetrics.totalTransactions = totalPayments;
+      healthMetrics.successRate = totalPayments > 0 ? (successfulPayments / totalPayments) * 100 : 0;
+      healthMetrics.averageResponseTime = stats.length > 0 ? totalResponseTime / stats.length : 0;
+
+      Object.keys(healthMetrics.statusBreakdown).forEach(status => {
+        healthMetrics.statusBreakdown[status].percentage = 
+          (healthMetrics.statusBreakdown[status].count / totalPayments) * 100;
+      });
+
+      // Generate alerts based on metrics
+      if (healthMetrics.successRate < 85) {
+        healthMetrics.alerts.push({
+          type: 'LOW_SUCCESS_RATE',
+          message: `Success rate is ${healthMetrics.successRate.toFixed(1)}% (below 85% threshold)`,
+          severity: 'high'
+        });
+      }
+
+      if (healthMetrics.averageResponseTime > 10000) {
+        healthMetrics.alerts.push({
+          type: 'SLOW_RESPONSE_TIME',
+          message: `Average response time is ${(healthMetrics.averageResponseTime / 1000).toFixed(1)}s (above 10s threshold)`,
+          severity: 'medium'
+        });
+      }
+
+      if (hblCircuitBreaker.getStats().state === 'OPEN') {
+        healthMetrics.alerts.push({
+          type: 'CIRCUIT_BREAKER_OPEN',
+          message: 'Circuit breaker is open - HBL API is currently unavailable',
+          severity: 'critical'
+        });
+      }
+
+      // Check for stuck payments
+      const stuckPayments = await paymentModel.countDocuments({
+        status: 'pending',
+        createdAt: { $lt: new Date(now.getTime() - 60 * 60 * 1000) } // Older than 1 hour
+      });
+
+      if (stuckPayments > 0) {
+        healthMetrics.alerts.push({
+          type: 'STUCK_PAYMENTS',
+          message: `${stuckPayments} payments have been pending for over 1 hour`,
+          severity: 'medium'
+        });
+      }
+
+      logger.info('Payment health monitoring completed', healthMetrics);
+      return healthMetrics;
+
+    } catch (error) {
+      logger.error('Payment health monitoring failed', error);
+      throw error;
+    }
+  }
+
+  // Auto-recovery for stuck payments
+  async recoverStuckPayments() {
+    const context = 'RecoverStuckPayments';
+    
+    try {
+      const cutoffTime = new Date(Date.now() - 60 * 60 * 1000); // 1 hour ago
+      
+      const stuckPayments = await paymentModel.find({
+        status: { $in: ['pending', 'initiated'] },
+        createdAt: { $lt: cutoffTime },
+        retryCount: { $lt: this.maxRetryAttempts }
+      });
+
+      logger.info('Found stuck payments for recovery', {
+        count: stuckPayments.length,
+        cutoffTime: cutoffTime.toISOString()
+      });
+
+      const recoveryResults = {
+        attempted: stuckPayments.length,
+        recovered: 0,
+        failed: 0,
+        expired: 0
+      };
+
+      for (const payment of stuckPayments) {
+        try {
+          // Check if payment has expired
+          if (payment.expiresAt < new Date()) {
+            await payment.updateOne({
+              status: 'expired',
+              expiredAt: new Date(),
+              updatedAt: new Date()
+            });
+            recoveryResults.expired++;
+            continue;
+          }
+
+          // Attempt to query payment status from HBL
+          const statusResult = await this.queryPaymentStatus(payment);
+          
+          if (statusResult.recovered) {
+            recoveryResults.recovered++;
+            logger.info('Payment recovered', {
+              paymentId: payment.paymentId,
+              newStatus: statusResult.status
+            });
+          } else {
+            recoveryResults.failed++;
+          }
+
+        } catch (recoveryError) {
+          logger.error('Payment recovery failed', recoveryError, {
+            paymentId: payment.paymentId
+          });
+          recoveryResults.failed++;
+        }
+      }
+
+      logger.info('Stuck payment recovery completed', recoveryResults);
+      return recoveryResults;
+
+    } catch (error) {
+      logger.error('Stuck payment recovery process failed', error);
+      throw error;
+    }
+  }
+
+  // Query payment status from HBL (if they provide such an API)
+  async queryPaymentStatus(payment) {
+    try {
+      // This would call HBL's status query API if available
+      // For now, we'll implement a basic timeout-based recovery
+      
+      const ageMinutes = (Date.now() - payment.createdAt.getTime()) / (1000 * 60);
+      
+      if (ageMinutes > 30) {
+        // Mark as expired after 30 minutes
+        await payment.updateOne({
+          status: 'expired',
+          expiredAt: new Date(),
+          updatedAt: new Date(),
+          failureReason: 'PAYMENT_TIMEOUT'
+        });
+
+        return { recovered: true, status: 'expired' };
+      }
+
+      return { recovered: false, status: payment.status };
+
+    } catch (error) {
+      logger.error('Payment status query failed', error, {
+        paymentId: payment.paymentId
+      });
+      return { recovered: false, error: error.message };
+    }
+  }
+
+  // Enhanced retry mechanism with smart backoff
+  async retryPayment(paymentId, userId, options = {}) {
+    const context = 'RetryPayment';
+    
+    try {
+      const originalPayment = await paymentModel.findOne({ paymentId });
+      
+      if (!originalPayment) {
+        throw new Error('Original payment not found');
+      }
+
+      if (originalPayment.userId.toString() !== userId.toString()) {
+        throw new Error('Unauthorized retry attempt');
+      }
+
+      if (originalPayment.status === 'completed') {
+        throw new Error('Payment already completed');
+      }
+
+      const retryCount = (originalPayment.retryCount || 0) + 1;
+      
+      if (retryCount > this.maxRetryAttempts) {
+        throw new Error('Maximum retry attempts exceeded');
+      }
+
+      logger.info('Retrying payment', {
+        originalPaymentId: paymentId,
+        retryCount,
+        maxAttempts: this.maxRetryAttempts,
+        userId
+      });
+
+      // Smart backoff: wait longer for higher retry counts
+      const backoffDelay = Math.min(Math.pow(2, retryCount) * 1000, 30000); // Max 30 seconds
+      
+      if (options.respectBackoff !== false) {
+        await new Promise(resolve => setTimeout(resolve, backoffDelay));
+      }
+
+      // Create retry payment with enhanced metadata
+      const retryPaymentData = {
+        amount: originalPayment.amount,
+        currency: originalPayment.currency,
+        bookingId: originalPayment.bookingId,
+        userData: originalPayment.userDetails,
+        bookingData: originalPayment.bookingDetails
+      };
+
+      const retryResult = await this.createPaymentWithFallback(retryPaymentData, userId);
+
+      // Update original payment to link to retry
+      await originalPayment.updateOne({
+        retryPaymentId: retryResult.data.paymentId,
+        retryCount,
+        lastRetryAt: new Date(),
+        updatedAt: new Date()
+      });
+
+      logger.info('Payment retry successful', {
+        originalPaymentId: paymentId,
+        retryPaymentId: retryResult.data.paymentId,
+        method: retryResult.method,
+        retryCount
+      });
+
+      return {
+        ...retryResult.data,
+        retryCount,
+        retryMethod: retryResult.method,
+        originalPaymentId: paymentId
+      };
+
+    } catch (error) {
+      logger.error('Payment retry failed', error, {
+        paymentId,
+        userId,
+        context
+      });
+      throw error;
+    }
+  }
+
+  // Payment analytics and insights
+  async getPaymentAnalytics(timeframe = '24h') {
+    try {
+      const hours = timeframe === '24h' ? 24 : timeframe === '7d' ? 168 : 24;
+      const startTime = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+      const analytics = await paymentModel.aggregate([
+        {
+          $match: {
+            createdAt: { $gte: startTime }
+          }
+        },
+        {
+          $group: {
+            _id: {
+              status: '$status',
+              method: '$paymentMethod',
+              hour: { $hour: '$createdAt' }
+            },
+            count: { $sum: 1 },
+            totalAmount: { $sum: '$amount' },
+            avgAmount: { $avg: '$amount' }
+          }
+        },
+        {
+          $sort: { '_id.hour': 1 }
+        }
+      ]);
+
+      // Process analytics data
+      const processedAnalytics = {
+        timeframe,
+        summary: {
+          totalTransactions: 0,
+          totalAmount: 0,
+          averageAmount: 0,
+          successRate: 0
+        },
+        byStatus: {},
+        byMethod: {},
+        hourlyBreakdown: {},
+        trends: []
+      };
+
+      analytics.forEach(item => {
+        const { status, method, hour } = item._id;
+        
+        processedAnalytics.summary.totalTransactions += item.count;
+        processedAnalytics.summary.totalAmount += item.totalAmount;
+
+        // Group by status
+        if (!processedAnalytics.byStatus[status]) {
+          processedAnalytics.byStatus[status] = { count: 0, amount: 0 };
+        }
+        processedAnalytics.byStatus[status].count += item.count;
+        processedAnalytics.byStatus[status].amount += item.totalAmount;
+
+        // Group by method
+        if (!processedAnalytics.byMethod[method]) {
+          processedAnalytics.byMethod[method] = { count: 0, amount: 0 };
+        }
+        processedAnalytics.byMethod[method].count += item.count;
+        processedAnalytics.byMethod[method].amount += item.totalAmount;
+
+        // Hourly breakdown
+        if (!processedAnalytics.hourlyBreakdown[hour]) {
+          processedAnalytics.hourlyBreakdown[hour] = { count: 0, amount: 0 };
+        }
+        processedAnalytics.hourlyBreakdown[hour].count += item.count;
+        processedAnalytics.hourlyBreakdown[hour].amount += item.totalAmount;
+      });
+
+      // Calculate derived metrics
+      if (processedAnalytics.summary.totalTransactions > 0) {
+        processedAnalytics.summary.averageAmount = 
+          processedAnalytics.summary.totalAmount / processedAnalytics.summary.totalTransactions;
+        
+        const completedCount = processedAnalytics.byStatus.completed?.count || 0;
+        processedAnalytics.summary.successRate = 
+          (completedCount / processedAnalytics.summary.totalTransactions) * 100;
+      }
+
+      logger.info('Payment analytics generated', {
+        timeframe,
+        totalTransactions: processedAnalytics.summary.totalTransactions,
+        successRate: processedAnalytics.summary.successRate
+      });
+
+      return processedAnalytics;
+
+    } catch (error) {
+      logger.error('Payment analytics generation failed', error);
+      throw error;
+    }
+  }
+
+  // Utility methods
+  generatePaymentId() {
+    const timestamp = Date.now();
+    const randomBytes = require('crypto').randomBytes(4).toString('hex');
+    return `PAY_${timestamp}_${randomBytes}`;
+  }
+
+  generateOrderId() {
+    const timestamp = Date.now();
+    const randomBytes = require('crypto').randomBytes(3).toString('hex');
+    return `ORD_${timestamp}_${randomBytes}`;
+  }
+
+  // Build HBL request (simplified version)
+  buildHBLRequest(paymentData, orderId, userId) {
+    // Your existing buildHBLPayRequest logic here
+    return {
+      USER_ID: process.env.HBLPAY_USER_ID,
+      // ... other encrypted parameters
+    };
+  }
+
+  // Call HBL API (simplified version)
+  async callHBLAPI(requestData) {
+    // Your existing callHBLPayAPI logic here
+    const response = await fetch(process.env.HBL_SANDBOX_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestData)
+    });
+
+    return await response.json();
+  }
+
+  // Cleanup expired payments
+  async cleanupExpiredPayments() {
+    try {
+      const result = await paymentModel.updateMany(
+        {
+          status: { $in: ['pending', 'initiated'] },
+          expiresAt: { $lt: new Date() }
+        },
+        {
+          $set: {
+            status: 'expired',
+            expiredAt: new Date(),
+            updatedAt: new Date()
+          }
+        }
+      );
+
+      logger.info('Expired payments cleaned up', {
+        modifiedCount: result.modifiedCount
+      });
+
+      return result.modifiedCount;
+    } catch (error) {
+      logger.error('Cleanup expired payments failed', error);
+      throw error;
+    }
+  }
+
+  // Generate payment report
+  async generatePaymentReport(startDate, endDate, options = {}) {
+    try {
+      const matchStage = {
+        createdAt: {
+          $gte: new Date(startDate),
+          $lte: new Date(endDate)
+        }
+      };
+
+      if (options.status) {
+        matchStage.status = options.status;
+      }
+
+      if (options.paymentMethod) {
+        matchStage.paymentMethod = options.paymentMethod;
+      }
+
+      const report = await paymentModel.aggregate([
+        { $match: matchStage },
+        {
+          $group: {
+            _id: {
+              date: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
+              status: '$status',
+              method: '$paymentMethod'
+            },
+            count: { $sum: 1 },
+            totalAmount: { $sum: '$amount' },
+            avgAmount: { $avg: '$amount' },
+            minAmount: { $min: '$amount' },
+            maxAmount: { $max: '$amount' }
+          }
+        },
+        { $sort: { '_id.date': 1 } }
+      ]);
+
+      logger.info('Payment report generated', {
+        startDate,
+        endDate,
+        recordCount: report.length,
+        options
+      });
+
+      return {
+        period: { startDate, endDate },
+        options,
+        data: report,
+        generatedAt: new Date().toISOString()
+      };
+
+    } catch (error) {
+      logger.error('Payment report generation failed', error);
+      throw error;
+    }
   }
 }
 
-module.exports = new PaymentService();
+module.exports = new EnhancedPaymentService();

@@ -72,8 +72,13 @@ app.use('/api', hotelRoutes); // Add this line
 app.use('/api/payments', paymentRoutes);
 app.use('/api/bookings', bookingRoutes);
 
-// Error handling middleware (MUST be last)
-app.use( notFoundHandler); // Handle 404s
-app.use(globalErrorHandler); // Handle all errors
+// // Error handling middleware (MUST be last)
+// app.use( notFoundHandler); // Handle 404s
+// app.use(globalErrorHandler); // Handle all errors
 module.exports = app;
+
+console.log('userRoutes:', typeof userRoutes);
+console.log('hotelRoutes:', typeof hotelRoutes);
+console.log('paymentRoutes:', typeof paymentRoutes);
+console.log('bookingRoutes:', typeof bookingRoutes);
 

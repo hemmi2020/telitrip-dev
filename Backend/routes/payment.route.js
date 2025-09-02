@@ -113,9 +113,6 @@ const validateRefundRequest = [
     .withMessage('Refund reason is required (5-200 characters)')
 ];
 
-
-
-
 // ==================== PROTECTED ROUTES (Require Authentication) ====================
 
 // Initiate HBLPay payment
@@ -186,7 +183,6 @@ router.get('/stats/:period',
   }
 );
 
-
 // ==================== PUBLIC ROUTES (No Authentication Required) ====================
 
 // HBLPay return callback (GET) - Called by HBLPay after payment
@@ -201,14 +197,11 @@ router.get('/callback', paymentController.handlePaymentReturn);
 // HBLPay callback with POST data
 router.post('/callback', paymentController.handlePaymentReturn);
 
-
 // Webhook route for HBLPay notifications
 router.post('/webhook', paymentController.handleWebhook);
 
 // Health check route for payment gateway
 router.get('/health', paymentController.healthCheck);
-
-
 
 // ==================== DEVELOPMENT/TEST ROUTES ====================
 
@@ -344,7 +337,7 @@ if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
       TIMESTAMP: new Date().toISOString()
     };
 
-    console.log('🧪 Test callback received:', mockCallbackData);
+    console.log('Test callback received:', mockCallbackData);
 
     return ApiResponse.success(res, {
       received: mockCallbackData,
@@ -384,7 +377,7 @@ router.use((error, req, res, next) => {
 
 // 404 handler for payment routes
 router.use('/error', (req, res) => {
-  return ApiResponse.notFound(res, `Payment endpoint not found: ${req.method} ${req.originalUrl}`);
+  return ApiResponse.error(res, `Payment endpoint not found: ${req.method} ${req.originalUrl}`, 404);
 });
 
-module.exports = router; 
+module.exports = router;
