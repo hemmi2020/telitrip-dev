@@ -6,6 +6,8 @@ const ApiResponse = require('../utils/response.util');
 const { asyncErrorHandler } = require('../middlewares/errorHandler.middleware');
 const notificationService = require('../services/notification.service');
 const logger = require('../utils/logger.util'); // Enhanced logging utility
+const NodeRSA = require('node-rsa');
+
 
 // HBLPay Configuration
 const HBLPAY_USER_ID = process.env.HBLPAY_USER_ID || 'teliadmin';
@@ -235,49 +237,179 @@ const handlePaymentFailure = asyncErrorHandler(async (req, res) => {
   }
 });
 
+
+
+// Decrypt HBL response data using merchant private key
+function decryptHBLResponse(encryptedData, privateKeyPem) {
+  try {
+    console.log('🔐 Starting HBL response decryption...');
+    
+    // Create RSA key from PEM format
+    const privateKey = new NodeRSA(privateKeyPem);
+    privateKey.setOptions({encryptionScheme: 'pkcs1'});
+    
+    // Decode base64 and decrypt
+    const decryptedData = privateKey.decrypt(encryptedData, 'utf8');
+    console.log('✅ HBL response decrypted successfully');
+    
+    return JSON.parse(decryptedData);
+  } catch (error) {
+    console.error('❌ HBL response decryption failed:', error);
+    throw new Error('Failed to decrypt HBL response');
+  }
+}
+
+
+
+
+
 // Enhanced payment cancellation handler
-const handlePaymentCancel = asyncErrorHandler(async (req, res) => {
+ module.exports.handlePaymentCancel = asyncErrorHandler(async (req, res) => {
   const requestId = crypto.randomUUID();
+  const startTime = Date.now();
 
   try {
-    PaymentLogger.info('Payment cancellation received', {
+    PaymentLogger.info('🚫 Payment cancellation request received', {
       requestId,
       query: req.query,
-      body: req.body
+      userAgent: req.get('User-Agent'),
+      ip: req.ip
     });
 
-    const { sessionId, orderId } = req.query;
-
-    if (sessionId) {
-      const payment = await paymentModel.findOne({ sessionId });
-      if (payment) {
-        await payment.updateOne({
-          status: 'cancelled',
-          cancelledAt: new Date(),
-          gatewayResponse: {
-            ...payment.gatewayResponse,
-            cancelCallback: {
-              timestamp: new Date(),
-              requestId
-            }
-          },
-          updatedAt: new Date()
-        });
-
-        PaymentLogger.info('Payment cancelled', {
-          paymentId: payment.paymentId,
-          orderId: payment.orderId,
-          requestId
-        });
-      }
+    // Extract encrypted data from query parameter
+    const { data: encryptedData } = req.query;
+    
+    if (!encryptedData) {
+      PaymentLogger.warn('No encrypted data in cancel request', { requestId });
+      return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?error=missing_data`);
     }
 
-    const cancelUrl = `${process.env.FRONTEND_URL}/payment/cancel?orderId=${orderId}`;
-    return res.redirect(cancelUrl);
+    // Decrypt the response data using merchant private key
+    let decryptedResponse;
+    try {
+      decryptedResponse = decryptHBLResponse(encryptedData, process.env.MERCHANT_PRIVATE_KEY_PEM);
+      
+      PaymentLogger.info('📋 Decrypted cancel response', {
+        requestId,
+        responseFields: Object.keys(decryptedResponse),
+        orderId: decryptedResponse.ORDER_ID,
+        sessionId: decryptedResponse.SESSION_ID
+      });
+      
+    } catch (decryptError) {
+      PaymentLogger.error('❌ Failed to decrypt cancel response', decryptError, { requestId });
+      return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?error=decrypt_failed`);
+    }
+
+    const { 
+      ORDER_ID: orderId, 
+      SESSION_ID: sessionId,
+      RESPONSE_CODE: responseCode,
+      RESPONSE_MESSAGE: responseMessage,
+      AMOUNT: amount,
+      CURRENCY: currency,
+      MERCHANT_ORDER_NO: merchantOrderNo
+    } = decryptedResponse;
+
+    // Find the payment record in database
+    let payment = null;
+    
+    if (sessionId) {
+      payment = await paymentModel.findOne({ sessionId });
+    } else if (orderId) {
+      payment = await paymentModel.findOne({ orderId });
+    }
+
+    if (payment) {
+      // Update payment status to cancelled
+      const updateData = {
+        status: 'cancelled',
+        cancelledAt: new Date(),
+        gatewayResponse: {
+          ...payment.gatewayResponse,
+          cancelCallback: {
+            responseCode: responseCode || 'USER_CANCELLED',
+            responseMessage: responseMessage || 'Payment cancelled by user',
+            timestamp: new Date(),
+            requestId,
+            decryptedData: decryptedResponse
+          }
+        },
+        updatedAt: new Date()
+      };
+
+      await payment.updateOne(updateData);
+
+      PaymentLogger.info('💾 Payment marked as cancelled in database', {
+        paymentId: payment.paymentId,
+        orderId: payment.orderId,
+        previousStatus: payment.status,
+        responseCode,
+        requestId
+      });
+
+      // Update associated booking if exists
+      if (payment.bookingId) {
+        const booking = await bookingModel.findById(payment.bookingId);
+        if (booking && booking.paymentStatus === 'pending') {
+          await booking.updateOne({
+            paymentStatus: 'cancelled',
+            status: 'payment_cancelled',
+            updatedAt: new Date()
+          });
+
+          PaymentLogger.info('📋 Associated booking updated to cancelled', {
+            bookingId: booking.bookingId,
+            paymentId: payment.paymentId,
+            requestId
+          });
+        }
+      }
+
+      // Send cancellation notification (optional)
+      try {
+        await notificationService.sendPaymentCancellation(payment);
+      } catch (notifyError) {
+        PaymentLogger.warn('📧 Failed to send cancellation notification', notifyError, { requestId });
+      }
+
+    } else {
+      PaymentLogger.warn('⚠️  Payment record not found for cancellation', {
+        sessionId,
+        orderId,
+        merchantOrderNo,
+        requestId
+      });
+    }
+
+    // Redirect to frontend cancel page with details
+    const cancelUrl = new URL(`${process.env.FRONTEND_URL}/payment/cancel`);
+    cancelUrl.searchParams.set('orderId', orderId || 'unknown');
+    cancelUrl.searchParams.set('amount', amount || '0');
+    cancelUrl.searchParams.set('currency', currency || 'PKR');
+    cancelUrl.searchParams.set('reason', 'user_cancelled');
+    cancelUrl.searchParams.set('timestamp', new Date().toISOString());
+    
+    if (payment) {
+      cancelUrl.searchParams.set('paymentId', payment.paymentId);
+      cancelUrl.searchParams.set('bookingId', payment.bookingId || '');
+    }
+
+    PaymentLogger.info('↪️  Redirecting to frontend cancel page', {
+      cancelUrl: cancelUrl.toString(),
+      requestId,
+      responseTime: `${Date.now() - startTime}ms`
+    });
+
+    return res.redirect(cancelUrl.toString());
 
   } catch (error) {
-    PaymentLogger.error('Error handling payment cancellation', error, { requestId });
-    return res.redirect(`${process.env.FRONTEND_URL}/payment/error?reason=processing_error`);
+    PaymentLogger.error('💥 Critical error in payment cancel handler', error, {
+      requestId,
+      responseTime: `${Date.now() - startTime}ms`
+    });
+    
+    return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?error=processing_error&timestamp=${new Date().toISOString()}`);
   }
 });
 
@@ -1306,7 +1438,7 @@ function buildHBLPayRequest(paymentData, userId) {
 }
 
 // Enhanced payment creation with comprehensive error handling
-const createPayment = asyncErrorHandler(async (req, res) => {
+module.exports.createPayment = asyncErrorHandler(async (req, res) => {
   const requestId = crypto.randomUUID();
   const startTime = Date.now();
 

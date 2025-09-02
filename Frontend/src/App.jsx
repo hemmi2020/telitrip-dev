@@ -12,6 +12,9 @@ import HotelDetails from './HotelDetails';
 import Checkout from './Checkout';
 import AccountDashboard from './AccountDashboard';
 
+// Import Payment Components (NEW)
+import PaymentCancel from './components/PaymentCancel';
+
 // Error Boundary Component
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -73,6 +76,8 @@ const App = () => {
               
               {/* Checkout route */}
               <Route path="/checkout" element={<Checkout />} />
+              {/* 🚨 CRITICAL: Payment Result Routes (NEW) */}
+              <Route path="/payment/cancel" element={<PaymentCancel />} />
               
               {/* Catch-all route for 404s */}
               <Route path="*" element={

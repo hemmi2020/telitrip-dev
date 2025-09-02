@@ -7,7 +7,7 @@ const userRoutes = require('./routes/user.route');
 const hotelRoutes = require('./routes/hotel.route.js');   
 const paymentRoutes = require('./routes/payment.route');
 const bookingRoutes = require('./routes/booking.route');
-const { globalErrorHandler, notFoundHandler } = require('./middlewares/errorHandler.middleware');
+const { globalErrorHandler } = require('./middlewares/errorHandler.middleware');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
@@ -71,14 +71,14 @@ app.use('/users', userRoutes);
 app.use('/api', hotelRoutes); // Add this line
 app.use('/api/payments', paymentRoutes);
 app.use('/api/bookings', bookingRoutes);
-
-// // Error handling middleware (MUST be last)
-// app.use( notFoundHandler); // Handle 404s
-// app.use(globalErrorHandler); // Handle all errors
-module.exports = app;
-
 console.log('userRoutes:', typeof userRoutes);
 console.log('hotelRoutes:', typeof hotelRoutes);
 console.log('paymentRoutes:', typeof paymentRoutes);
 console.log('bookingRoutes:', typeof bookingRoutes);
+
+// Error handling middleware (MUST be last)
+// Handle 404s
+app.use(globalErrorHandler); // Handle all errors
+module.exports = app;
+
 

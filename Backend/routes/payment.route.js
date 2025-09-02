@@ -122,6 +122,8 @@ router.post('/hblpay/initiate',
   validateRequest, 
   paymentController.initiateHBLPayPayment
 );
+// Create payment session
+router.post('/create', authUser, paymentController.createPayment);
 
 // Verify payment status
 router.get('/verify/:sessionId', 
@@ -183,6 +185,20 @@ router.get('/stats/:period',
   }
 );
 
+
+
+// ==================== ADMIN ROUTES ====================
+
+// Get all payments (Admin)
+// router.get('/admin/all', authAdmin, paymentController.getAllPayments);
+
+// Get payment statistics (Admin)
+// router.get('/admin/stats', authAdmin, paymentController.getPaymentStats);
+
+// Refund payment (Admin)
+// router.post('/admin/refund/:paymentId', authAdmin, paymentController.refundPayment);
+
+
 // ==================== PUBLIC ROUTES (No Authentication Required) ====================
 
 // HBLPay return callback (GET) - Called by HBLPay after payment
@@ -196,6 +212,15 @@ router.get('/callback', paymentController.handlePaymentReturn);
 
 // HBLPay callback with POST data
 router.post('/callback', paymentController.handlePaymentReturn);
+
+// 🚨 CRITICAL: HBLPay Cancel Routes (NEW)
+router.get('/cancel', paymentController.handlePaymentCancel);
+router.post('/cancel', paymentController.handlePaymentCancel);
+
+
+// Alternative cancel route for direct frontend access
+router.get('/cancelled', paymentController.handlePaymentCancel);
+
 
 // Webhook route for HBLPay notifications
 router.post('/webhook', paymentController.handleWebhook);
