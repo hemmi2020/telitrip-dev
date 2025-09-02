@@ -23,6 +23,11 @@ const validatePaymentInitiation = [
     .optional()
     .isIn(['PKR', 'USD', 'EUR'])
     .withMessage('Currency must be PKR, USD, or EUR'),
+    body('bookingId')
+    .notEmpty()
+    .withMessage('Booking ID is required')
+    .isMongoId()
+    .withMessage('Invalid booking ID format'), 
   body('userData.firstName')
     .notEmpty()
     .trim()
