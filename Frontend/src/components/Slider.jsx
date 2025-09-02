@@ -61,34 +61,93 @@ const Slider = () => {
                   : "opacity-0 pointer-events-none"
               }`}
             >
+              {/* Background Image with Overlay */}
               <div
                 className="w-full h-full bg-cover bg-center transition-all duration-1000"
                 style={{ backgroundImage: `url(${item.url})` }}
-              ></div>
-              <div className="absolute top-1/4 left-1/2 transform -translate-x-1/2 text-left grid grid-cols-1 md:grid-cols-2 gap-10 text-white max-w-6xl w-full px-4 z-10">
-                <h2 className="text-4xl md:text-6xl font-oswald uppercase leading-none transition-transform duration-1000">
-                  {item.title}
-                </h2>
-                <div className="space-y-4">
-                  <p className="text-base md:text-lg">
-                    {item.description.split(". ")[0]}
-                  </p>
-                  <p className="text-base md:text-lg">
-                    {item.description.split(". ")[1]}
-                  </p>
+              >
+                {/* Dark overlay for better text readability */}
+                <div className="absolute inset-0 bg-black/40"></div>
+              </div>
+              
+              {/* Text Content - Responsive positioning */}
+              <div className="absolute inset-0 flex flex-col justify-center lg:justify-start lg:pt-32 xl:pt-40 px-4 sm:px-6 lg:px-8 z-10">
+                <div className="max-w-7xl mx-auto w-full">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-10 text-white text-center lg:text-left">
+                    {/* Title */}
+                    <div className="lg:col-span-2 xl:col-span-1">
+                      <h2 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl font-oswald uppercase leading-tight lg:leading-none transition-transform duration-1000 font-bold">
+                        {item.title}
+                      </h2>
+                    </div>
+                    
+                    {/* Description */}
+                    <div className="space-y-3 sm:space-y-4 lg:col-span-2 xl:col-span-1">
+                      <p className="text-sm sm:text-base md:text-lg lg:text-xl leading-relaxed">
+                        {item.description.split(". ")[0]}.
+                      </p>
+                      {item.description.split(". ")[1] && (
+                        <p className="text-sm sm:text-base md:text-lg lg:text-xl leading-relaxed">
+                          {item.description.split(". ")[1]}.
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           ))}
 
-          {/* Hotel Search Form Floating at Bottom */}
-          <div
-            style={{ height: "calc(100vh - 8rem)" }}
-            className="absolute flex justify-center items-center top-16 w-full z-30"
-          >
-            <div className="bg-transparent mt-15 p-8 rounded-2xl">
+          {/* Hotel Search Form - Responsive positioning */}
+          <div className=" absolute bottom-4 sm:bottom-6 md:bottom-8 lg:bottom-12 xl:bottom-16 left-1/2 transform -translate-x-1/2 w-full max-w-7xl px-2 sm:px-4 lg:px-8 z-30">
+            <div className="bg-transparent rounded-2xl">
               <HotelSearchForm />
             </div>
+          </div>
+
+          {/* Slide Indicators */}
+          <div className="absolute bottom-20 sm:bottom-24 md:bottom-28 lg:bottom-32 xl:bottom-40 left-1/2 transform -translate-x-1/2 flex space-x-2 z-20">
+            {items.map((_, index) => (
+              <button
+                key={index}
+                onClick={() => setActive(index)}
+                className={`w-2 h-2 sm:w-3 sm:h-3 rounded-full transition-all duration-300 ${
+                  index === active 
+                    ? 'bg-white shadow-lg' 
+                    : 'bg-white/50 hover:bg-white/70'
+                }`}
+              />
+            ))}
+          </div>
+
+          {/* Navigation Arrows - Hidden on mobile, visible on larger screens */}
+          <div className="hidden md:block">
+            <button
+              onClick={() => setActive(active === 0 ? items.length - 1 : active - 1)}
+              className="absolute left-4 lg:left-8 top-1/2 transform -translate-y-1/2 bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white p-2 lg:p-3 rounded-full transition-all duration-300 z-20 group"
+            >
+              <svg className="w-4 h-4 lg:w-6 lg:h-6 transform group-hover:scale-110 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            
+            <button
+              onClick={() => setActive(active === items.length - 1 ? 0 : active + 1)}
+              className="absolute right-4 lg:right-8 top-1/2 transform -translate-y-1/2 bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white p-2 lg:p-3 rounded-full transition-all duration-300 z-20 group"
+            >
+              <svg className="w-4 h-4 lg:w-6 lg:h-6 transform group-hover:scale-110 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile-only swipe hints */}
+        <div className="md:hidden absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white/70 text-xs text-center z-20">
+          <div className="flex items-center space-x-2">
+            <div className="w-8 h-0.5 bg-white/50 rounded"></div>
+            <span>Swipe or tap dots to navigate</span>
+            <div className="w-8 h-0.5 bg-white/50 rounded"></div>
           </div>
         </div>
       </section>
