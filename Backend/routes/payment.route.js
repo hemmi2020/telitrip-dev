@@ -121,14 +121,14 @@ const validateRefundRequest = [
 // ==================== PROTECTED ROUTES (Require Authentication) ====================
 
 // Initiate HBLPay payment
-router.post('/hblpay/initiate', 
+router.post('/hblpay/initiate',   
   validatePaymentInitiation,
   authUser, 
-  validateRequest, 
-  paymentController.initiateHBLPayPayment
-);
-// Create payment session
-router.post('/create', authUser, paymentController.createPayment);
+  validateRequest,  
+  paymentController.initiateHBLPayPayment   
+); 
+// // Create payment session
+// router.post('/create', authUser, paymentController.createPayment);
 
 // Verify payment status
 router.get('/verify/:sessionId', 
