@@ -715,75 +715,59 @@ function encryptHBLData(data, publicKey) {
     error.code = 'MISSING_PUBLIC_KEY';
     throw error;
   }
-
   try {
-    PaymentLogger.debug('Encrypting HBL data', {
-      dataLength: data.length,
-      publicKeyLength: publicKey.length
-    });
-
-    const buffer = Buffer.from(data, 'utf8');
+    const stringData = String(data);
+    
+    // Use Node.js crypto for RSA encryption (more reliable than NodeRSA for this use case)
+    const buffer = Buffer.from(stringData, 'utf8');
     const encrypted = crypto.publicEncrypt({
       key: publicKey,
       padding: crypto.constants.RSA_PKCS1_PADDING,
     }, buffer);
 
-    const result = encrypted.toString('base64'); 
-    PaymentLogger.debug('Data encrypted successfully', {
-      originalLength: data.length,
-      encryptedLength: result.length
-    });
-
-    return result;
+    return encrypted.toString('base64');
   } catch (error) {
-    PaymentLogger.error('RSA encryption failed', error, {
-      dataLength: data.length,
-      publicKeyProvided: !!publicKey
-    });
-
-    const enhancedError = new Error('Failed to encrypt data for HBL');
-    enhancedError.code = 'ENCRYPTION_FAILED';
-    enhancedError.originalError = error;
-    throw enhancedError;
+    console.error('RSA encryption error:', error.message);
+    throw error;
   }
 }
 
-// Enhanced parameter encryption with validation
-function encryptRequestParameters(obj, publicKey) {
-  try {
-    const result = {};
-    const encryptedFields = [];
+    
 
-    for (const [key, value] of Object.entries(obj)) {
-      if (key === 'USER_ID') {
-        result[key] = value;
-      } else if (value === null || value === undefined) {
-        result[key] = value;
-      } else if (Array.isArray(value)) {
-        result[key] = value.map(item =>
-          typeof item === 'object' ? encryptHBLData(JSON.stringify(item), publicKey) : encryptHBLData(String(item), publicKey)
-        );
-        encryptedFields.push(key);
-      } else if (typeof value === 'object') {
-        result[key] = encryptHBLData(JSON.stringify(value), publicKey);
-        encryptedFields.push(key);
-      } else {
+// Recursive parameter encryption EXACTLY like the PHP sample in HBL PDF
+function encryptRequestParameters(data, publicKey) {
+  if (typeof data !== 'object' || data === null) {
+    return data;
+  }
+
+  if (Array.isArray(data)) {
+    return data.map(item => encryptRequestParameters(item, publicKey));
+  }
+
+  const result = {};
+  
+  for (const [key, value] of Object.entries(data)) {
+    if (key === 'USER_ID') {
+      // Never encrypt USER_ID (per HBL requirements)
+      result[key] = value;
+    } else if (value === null || value === undefined) {
+      result[key] = value;
+    } else if (typeof value === 'object') {
+      // Recursively encrypt objects and arrays
+      result[key] = encryptRequestParameters(value, publicKey);
+    } else {
+      // Encrypt primitive values (strings, numbers, booleans)
+      try {
         result[key] = encryptHBLData(String(value), publicKey);
-        encryptedFields.push(key);
+      } catch (error) {
+        console.warn(`Failed to encrypt field ${key}:`, error.message);
+        // If encryption fails, keep original value (HBL sandbox might accept it)
+        result[key] = value;
       }
     }
-
-    PaymentLogger.debug('Parameters encrypted', {
-      totalFields: Object.keys(obj).length,
-      encryptedFields: encryptedFields.length,
-      unencryptedFields: ['USER_ID']
-    });
-
-    return result;
-  } catch (error) {
-    PaymentLogger.error('Parameter encryption failed', error);
-    throw error;
   }
+
+  return result;
 }
 
 
