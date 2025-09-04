@@ -5,6 +5,17 @@ const { authUser } = require('../middlewares/auth.middleware');
 const paymentController = require('../controllers/payment.controller');
 const ApiResponse = require('../utils/response.util');
 
+
+
+// ADD THIS LINE:
+router.get('/test-decrypt', paymentController.testDecryption);
+// Add these two lines in your PUBLIC ROUTES section
+router.get('/test-blocks', paymentController.testBlockSizes);
+router.get('/test-padding', paymentController.testPadding);
+router.get('/test-keypair', paymentController.testKeyPairValidity);
+
+
+
 // Validation middleware
 const validateRequest = (req, res, next) => {
   const errors = validationResult(req);
@@ -223,6 +234,13 @@ router.get('/cancel', paymentController.handlePaymentCancel);
 router.post('/cancel', paymentController.handlePaymentCancel);
 
 
+// Add this to your PUBLIC ROUTES section
+router.get('/success', paymentController.handlePaymentSuccess);
+router.post('/success', paymentController.handlePaymentSuccess);
+
+
+
+
 // Alternative cancel route for direct frontend access
 router.get('/cancelled', paymentController.handlePaymentCancel);
 
@@ -237,32 +255,8 @@ router.get('/health', paymentController.healthCheck);
 
 if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
   
-  // Test configuration route
-  router.get('/test-config', authUser, (req, res) => {
-    const config = {
-      environment: process.env.NODE_ENV,
-      hblpay: {
-        userId: process.env.HBLPAY_USER_ID ? 'Set' : 'Not Set',
-        password: process.env.HBLPAY_PASSWORD ? 'Set' : 'Not Set',
-        channel: process.env.HBL_CHANNEL || 'HBLPay_Teli_Website',
-        typeId: process.env.HBL_TYPE_ID || 'ECOM',
-        publicKey: process.env.HBL_PUBLIC_KEY_PEM ? 'Set' : 'Not Set'
-      },
-      urls: {
-        sandboxApi: process.env.HBL_SANDBOX_API_URL,
-        productionApi: process.env.HBL_PRODUCTION_API_URL,
-        sandboxRedirect: process.env.HBL_SANDBOX_REDIRECT_URL,
-        productionRedirect: process.env.HBL_PRODUCTION_REDIRECT_URL
-      },
-      frontend: {
-        baseUrl: process.env.FRONTEND_URL,
-        successUrl: process.env.PAYMENT_SUCCESS_URL,
-        cancelUrl: process.env.PAYMENT_CANCEL_URL
-      }
-    };
-
-    return ApiResponse.success(res, config, 'Test configuration retrieved');
-  });
+  
+  
 
   // Get test data (test cards, etc.)
   router.get('/test-data', authUser, (req, res) => {
@@ -376,6 +370,8 @@ if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') {
     }, 'Test callback successful');
   });
 }
+
+
 
 // ==================== ERROR HANDLING MIDDLEWARE ====================
 

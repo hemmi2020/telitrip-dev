@@ -11,6 +11,7 @@ import HotelSearchResults from './HotelSearchResults';
 import HotelDetails from './HotelDetails';
 import Checkout from './Checkout';
 import AccountDashboard from './AccountDashboard';
+import PaymentSuccess from './components/PaymentSuccess';
 
 // Import Payment Components (NEW)
 import PaymentCancel from './components/PaymentCancel';
@@ -76,6 +77,7 @@ const App = () => {
               
               {/* Checkout route */}
               <Route path="/checkout" element={<Checkout />} />
+              <Route path="/payment/success" element={<PaymentSuccess />} />
               {/* 🚨 CRITICAL: Payment Result Routes (NEW) */}
               <Route path="/payment/cancel" element={<PaymentCancel />} />
               
