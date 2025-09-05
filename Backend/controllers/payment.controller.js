@@ -1005,8 +1005,8 @@ const buildHBLPayRequest = (paymentData, userId) => {
   const request = {
     "USER_ID": HBLPAY_USER_ID,
     "PASSWORD": HBLPAY_PASSWORD,
-    "RETURN_URL": `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/success`,
-    "CANCEL_URL": `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/cancel`,
+    "RETURN_URL": `${process.env.FRONTEND_URL || 'https://telitrip.onrender.com'}/payment/success`,
+    "CANCEL_URL": `${process.env.FRONTEND_URL || 'https://telitrip.onrender.com'}/payment/cancel`,
     "CHANNEL": HBL_CHANNEL,
     "TYPE_ID": HBL_TYPE_ID,
     "ORDER": {
@@ -1014,7 +1014,7 @@ const buildHBLPayRequest = (paymentData, userId) => {
       "SUBTOTAL": amount.toFixed(2),
       "OrderSummaryDescription": [
         {
-          "ITEM_NAME": "HOTEL BOOKING",
+          "ITEM_NAME": bookingData?.hotelName || "HOTEL BOOKING",
           "QUANTITY": "1",
           "UNIT_PRICE": amount.toFixed(2),
           "OLD_PRICE": null,
