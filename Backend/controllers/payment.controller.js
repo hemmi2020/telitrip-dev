@@ -1005,8 +1005,8 @@ const buildHBLPayRequest = (paymentData, userId) => {
   const request = {
     "USER_ID": HBLPAY_USER_ID,
     "PASSWORD": HBLPAY_PASSWORD,
-    "RETURN_URL": `${process.env.FRONTEND_URL || 'https://telitrip.onrender.com'}/api/payments/success`,
-    "CANCEL_URL": `${process.env.FRONTEND_URL || 'https://telitrip.onrender.com'}/api/payments/cancel`,
+    "RETURN_URL": `${process.env.FRONTEND_URL || 'https://telitrip.onrender.com'}/payment/success`,
+    "CANCEL_URL": `${process.env.FRONTEND_URL || 'https://telitrip.onrender.com'}/payments/cancel`,
     "CHANNEL": HBL_CHANNEL,
     "TYPE_ID": HBL_TYPE_ID,
     "ORDER": {
