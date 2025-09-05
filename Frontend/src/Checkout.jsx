@@ -536,7 +536,7 @@ const Checkout = () => {
       </div>
 
       {/* Debug Info - Remove this in production */}
-      {import.meta.env.MODE === 'development' && (
+      {import.meta.env.MODE === 'production' && (
         <div className="bg-gray-100 p-4 rounded-lg mb-4 text-xs">
           <h4 className="font-medium mb-2">Debug Info:</h4>
           <pre>{JSON.stringify({
