@@ -13,7 +13,12 @@ export default defineConfig({
   },
   preview: {
     port: 4173,
-    host: true
+    host: true,
+    allowedHosts: [
+      'telitrip.onrender.com',
+      'localhost',
+      '127.0.0.1'
+    ]
   },
   build: {
     outDir: 'dist'
