@@ -343,7 +343,7 @@ router.get('/hotels/details/:hotelCode', async (req, res) => {
 });
 
 // Geocoding route (existing)
-router.get('/geocode', async (req, res) => {  
+router.get('/api/geocode', async (req, res) => {  
     try {
         const { q } = req.query; 
   
