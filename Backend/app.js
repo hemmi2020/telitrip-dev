@@ -39,7 +39,7 @@ app.use(cors({
         'http://localhost:3000',
         'http://localhost:5173',
         'https://telitrip.onrender.com',
-        'https://teletrip-frontend.onrender.com'
+        'https://telitrip-frontend.onrender.com'
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
