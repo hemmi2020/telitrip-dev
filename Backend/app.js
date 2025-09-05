@@ -35,6 +35,7 @@ app.use(cookieParser());
 app.use(cors({
     origin: function (origin, callback) {
         const allowedOrigins = [
+          'https://telitrip.onrender.com',
             process.env.FRONTEND_URL,
             'http://localhost:3000',
             'http://localhost:5173',
