@@ -10,7 +10,7 @@ const bookingRoutes = require('./routes/booking.route');
 const { globalErrorHandler } = require('./middlewares/errorHandler.middleware');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const ApiResponse = require('./utils/response.util');
+
 
   
 
@@ -34,25 +34,38 @@ app.use(limiter);
 
 app.use(cookieParser());
 app.use(cors({
-    origin: true,
+    origin: [
+        process.env.FRONTEND_URL,
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'https://telitrip.onrender.com',
+        'https://teletrip-frontend.onrender.com'
+    ],
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
-    
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); 
 
 
+// Root route
 app.get('/', (req, res) => {
-    res.send('Hello World!');
-})
-// Health check route
+    res.json({ 
+        message: 'TeleTrip Backend API is running!',
+        status: 'OK',
+        timestamp: new Date().toISOString() 
+    });
+});
+// Fixed Health check route
 app.get('/health', (req, res) => {
-    return ApiResponse.success(res, { 
+    res.status(200).json({ 
         status: 'OK', 
+        message: 'Server is running',
         timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-    }, 'Server is running');
+        uptime: process.uptime(),
+        environment: process.env.NODE_ENV || 'development'
+    });
 });
 
 
