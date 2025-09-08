@@ -8,11 +8,8 @@ const ApiResponse = require('../utils/response.util');
 
 
 // ADD THIS LINE:
-router.get('/test-decrypt', paymentController.testDecryption);
-// Add these two lines in your PUBLIC ROUTES section
-router.get('/test-blocks', paymentController.testBlockSizes);
-router.get('/test-padding', paymentController.testPadding);
-router.get('/test-keypair', paymentController.testKeyPairValidity);
+router.get('/test-decrypt', authUser, paymentController.testDecryption);
+
 
 
 
@@ -249,7 +246,7 @@ router.get('/cancelled', paymentController.handlePaymentCancel);
 router.post('/webhook', paymentController.handleWebhook);
 
 // Health check route for payment gateway
-router.get('/health', paymentController.healthCheck);
+router.get('/health', paymentController.healthCheck); 
 
 // ==================== DEVELOPMENT/TEST ROUTES ====================
 

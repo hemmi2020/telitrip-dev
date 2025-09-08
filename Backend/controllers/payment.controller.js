@@ -39,64 +39,76 @@ const httpsAgent = new https.Agent({
 // Fixed HBL response decryption function - Updated for Node.js security changes
 function decryptHBLResponse(encryptedData, privateKeyPem) {
   try {
-    console.log('🔐 Starting HBL response decryption...');
+    console.log('🔐 Starting HBL response decryption with bank-provided logic...');
     console.log('📝 Encrypted data length:', encryptedData.length);
     
-    
-    
-    // HBL uses 512-byte blocks for RSA decryption (same as PHP sample)
+    // HBL uses 512-byte blocks for RSA decryption (matching PHP sample)
     const DECRYPT_BLOCK_SIZE = 512;
     
-    // Create RSA key from PEM format
+    // Create RSA key from PEM format with PKCS1 padding (matching openssl_private_decrypt)
     const privateKey = new NodeRSA(privateKeyPem);
     privateKey.setOptions({
-      encryptionScheme: 'pkcs1'  // NodeRSA still supports PKCS1
+      encryptionScheme: 'pkcs1',  // Equivalent to OPENSSL_PKCS1_PADDING
+      environment: 'node'
     });
     
-    // First decode the base64 data
+    // Step 1: Base64 decode the encrypted data (as specified by bank)
+    console.log('📦 Decoding base64 data as specified by bank...');
     const encryptedBuffer = Buffer.from(encryptedData, 'base64');
     console.log('📦 Decoded buffer length:', encryptedBuffer.length);
     
+    // Step 2: Process each 512-byte block (matching PHP str_split logic)
+    console.log('🔄 Processing data in 512-byte blocks...');
     let decryptedData = '';
     
-    // Split the encrypted data into 512-byte blocks
     for (let i = 0; i < encryptedBuffer.length; i += DECRYPT_BLOCK_SIZE) {
       const chunk = encryptedBuffer.slice(i, i + DECRYPT_BLOCK_SIZE);
-      console.log(`🔍 Processing chunk ${Math.floor(i / DECRYPT_BLOCK_SIZE) + 1}, size: ${chunk.length}`);
+      const chunkNumber = Math.floor(i / DECRYPT_BLOCK_SIZE) + 1;
+      
+      console.log(`🔍 Decrypting chunk ${chunkNumber}/${Math.ceil(encryptedBuffer.length / DECRYPT_BLOCK_SIZE)}, size: ${chunk.length} bytes`);
       
       try {
-        // Use NodeRSA for decryption (supports PKCS1)
+        // Decrypt this chunk (equivalent to openssl_private_decrypt with PKCS1 padding)
         const decryptedChunk = privateKey.decrypt(chunk, 'utf8');
         decryptedData += decryptedChunk;
+        console.log(`✅ Chunk ${chunkNumber} decrypted successfully`);
         
       } catch (chunkError) {
-        console.error(`❌ Failed to decrypt chunk at position ${i}:`, chunkError.message);
-        throw new Error(`Block decryption failed at chunk ${Math.floor(i / DECRYPT_BLOCK_SIZE) + 1}: ${chunkError.message}`);
+        console.error(`❌ Failed to decrypt chunk ${chunkNumber}:`, chunkError.message);
+        // If any block fails, return empty result (following PHP sample logic)
+        console.log('🚫 Block decryption failed - returning empty result as per bank sample');
+        return {};
       }
     }
     
-    console.log('✅ HBL response decrypted successfully');
-    console.log('📄 Decrypted data:', decryptedData);
+    console.log('✅ All blocks decrypted successfully');
+    console.log('📄 Raw decrypted response:', decryptedData);
     
-    // Parse the query string format into an object
+    // Step 3: Parse the query string format returned by HBL
+    // Expected format: RESPONSE_CODE=0&RESPONSE_MESSAGE=Success&ORDER_REF_NUMBER=12345&PAYMENT_TYPE=CC
     const params = {};
     
     if (decryptedData && decryptedData.includes('=')) {
       const pairs = decryptedData.split('&');
-      console.log('🔍 Found parameter pairs:', pairs);
+      console.log(`🔍 Found ${pairs.length} parameter pairs`);
       
       for (const pair of pairs) {
-        const [key, value] = pair.split('=');
-        if (key && value !== undefined) {
+        const equalIndex = pair.indexOf('=');
+        if (equalIndex > 0) {
+          const key = pair.substring(0, equalIndex);
+          const value = pair.substring(equalIndex + 1);
+          
+          // URL decode the values
           params[key] = decodeURIComponent(value);
           console.log(`📝 Parsed: ${key} = ${params[key]}`);
         }
       }
     } else {
-      console.warn('⚠️ Decrypted data does not contain expected format');
+      console.warn('⚠️ Decrypted data does not contain expected query string format');
+      console.log('📋 Raw data for debugging:', JSON.stringify(decryptedData));
     }
     
-    console.log('📋 Final parsed parameters:', params);
+    console.log('📋 Final parsed HBL response:', params);
     return params;
     
   } catch (error) {
@@ -106,50 +118,35 @@ function decryptHBLResponse(encryptedData, privateKeyPem) {
 }
 
 // Alternative function using NodeRSA with proper block handling (if you prefer to keep NodeRSA)
-function decryptHBLResponseWithNodeRSA(encryptedData, privateKeyPem) {
+function decryptHBLResponseSafe(encryptedData, privateKeyPem, requestId = 'unknown') {
   try {
-    console.log('🔐 Starting HBL response decryption with NodeRSA...');
-    
-    const NodeRSA = require('node-rsa');
-    const DECRYPT_BLOCK_SIZE = 512;
-    
-    // Create RSA key from PEM format
-    const privateKey = new NodeRSA(privateKeyPem);
-    privateKey.setOptions({
-      encryptionScheme: 'pkcs1',
-      environment: 'node'
-    });
-    
-    // Decode base64 and split into blocks
-    const encryptedBuffer = Buffer.from(encryptedData, 'base64');
-    let decryptedData = '';
-    
-    // Process each 512-byte block
-    for (let i = 0; i < encryptedBuffer.length; i += DECRYPT_BLOCK_SIZE) {
-      const chunk = encryptedBuffer.slice(i, i + DECRYPT_BLOCK_SIZE);
-      const decryptedChunk = privateKey.decrypt(chunk, 'utf8');
-      decryptedData += decryptedChunk;
+    // Validate inputs
+    if (!encryptedData || typeof encryptedData !== 'string') {
+      throw new Error('Invalid encrypted data provided');
     }
     
-    console.log('✅ HBL response decrypted successfully with NodeRSA');
-    console.log('📄 Decrypted data:', decryptedData);
-    
-    // Parse query string format
-    const params = {};
-    const pairs = decryptedData.split('&');
-    
-    for (const pair of pairs) {
-      const [key, value] = pair.split('=');
-      if (key && value !== undefined) {
-        params[key] = decodeURIComponent(value);
-      }
+    if (!privateKeyPem || typeof privateKeyPem !== 'string') {
+      throw new Error('Invalid private key provided');
     }
     
-    return params;
+    // Perform decryption
+    const result = decryptHBLResponse(encryptedData, privateKeyPem);
+    
+    // Log successful decryption
+    console.log(`✅ [${requestId}] HBL response decrypted successfully`);
+    
+    return result;
     
   } catch (error) {
-    console.error('❌ HBL response decryption with NodeRSA failed:', error);
-    throw new Error(`Failed to decrypt HBL response: ${error.message}`);
+    console.error(`❌ [${requestId}] HBL decryption failed:`, error.message);
+    
+    // Return structured error result
+    return {
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+      requestId
+    };
   }
 }
 
@@ -167,54 +164,29 @@ class PaymentLogger {
     };
 
     try {
-      // Try to use main logger first
       if (logger && typeof logger[level] === 'function') {
         logger[level](message, metadata);
         return;
       }
     } catch (loggerError) {
-      // If main logger fails, log the error but continue with fallback
-      console.error('Main logger failed:', loggerError.message);
+      console.warn('Logger unavailable, falling back to console:', loggerError.message);
     }
 
-    // Improved fallback with proper console methods
-    const consoleMethods = {
-      error: console.error,
-      warn: console.warn,
-      info: console.info,
-      debug: console.debug
-    };
-
-    const consoleMethod = consoleMethods[level] || console.log;
-    const prefix = `[${level.toUpperCase()}] HBLPay: ${new Date().toISOString()}`;
-    
-    consoleMethod(prefix, message);
-    if (Object.keys(metadata).length > 0) {
-      consoleMethod('Metadata:', metadata);
-    }
-  }
-
-  static error(message, error, metadata = {}) {
-    const enhancedMetadata = { ...metadata };
-    
-    if (error) {
-      enhancedMetadata.error = {
-        message: error?.message,
-        stack: error?.stack,
-        code: error?.code,
-        name: error?.name
-      };
-    }
-
-    this.log('error', message, enhancedMetadata);
+    // Fallback to console
+    const logMethod = console[level] || console.log;
+    logMethod(JSON.stringify(logEntry, null, 2));
   }
 
   static info(message, metadata = {}) {
     this.log('info', message, metadata);
   }
 
-  static warn(message, metadata = {}) {
-    this.log('warn', message, metadata);
+  static error(message, error, metadata = {}) {
+    this.log('error', message, { 
+      ...metadata, 
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined 
+    });
   }
 
   static debug(message, metadata = {}) {
@@ -225,239 +197,92 @@ class PaymentLogger {
 
 
 
+
 // Updated handlePaymentCancel function with enhanced debugging
 module.exports.handlePaymentCancel = asyncErrorHandler(async (req, res) => {
   const requestId = crypto.randomUUID();
-  const startTime = Date.now();
-
+  
   try {
-    PaymentLogger.info('🚫 Payment cancellation request received', {
-      requestId,
-      query: req.query,
-      userAgent: req.get('User-Agent'),
-      ip: req.ip
-    });
+    console.log(`\n🚫 [${requestId}] Payment cancel callback received`);
+    PaymentLogger.info('Payment cancel callback initiated', { requestId });
 
-    // Extract encrypted data from query parameter
-    const { data: encryptedData } = req.query;
-    
-    console.log('🔍 DEBUG: Raw query params:', req.query);
-    console.log('🔍 DEBUG: Encrypted data exists:', !!encryptedData);
-    console.log('🔍 DEBUG: Encrypted data length:', encryptedData?.length);
-    console.log('🔍 DEBUG: Encrypted data preview:', encryptedData?.substring(0, 100));
+    const encryptedData = req.query.data || req.body.data;
     
     if (!encryptedData) {
-      PaymentLogger.warn('No encrypted data in cancel request', { requestId });
-      console.error('❌ No encrypted data found in URL query parameters');
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?error=missing_data`);
+      console.log('❌ No encrypted data received in cancel callback');
+      return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?reason=missing_data`);
     }
 
-    // Check if merchant private key exists
-    console.log('🔍 DEBUG: MERCHANT_PRIVATE_KEY_PEM exists:', !!process.env.MERCHANT_PRIVATE_KEY_PEM);
-    console.log('🔍 DEBUG: Private key preview:', process.env.MERCHANT_PRIVATE_KEY_PEM?.substring(0, 50));
-    
     if (!process.env.MERCHANT_PRIVATE_KEY_PEM) {
-      PaymentLogger.error('❌ MERCHANT_PRIVATE_KEY_PEM not configured', null, { requestId });
-      console.error('❌ MERCHANT_PRIVATE_KEY_PEM environment variable is missing!');
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?error=config_error`);
+      console.error('❌ Merchant private key not configured');
+      return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?reason=config_error`);
     }
 
-    // Decrypt the response data using merchant private key with proper block handling
+    // Decrypt the response using the updated function
     let decryptedResponse = {};
     try {
-      console.log('🔐 Attempting decryption...');
-      // Use the fixed decryption function
+      console.log(`🔐 [${requestId}] Attempting decryption of cancel response...`);
       decryptedResponse = decryptHBLResponse(encryptedData, process.env.MERCHANT_PRIVATE_KEY_PEM);
       
-      console.log('✅ Decryption successful! Response fields:', Object.keys(decryptedResponse));
-      console.log('📋 Full decrypted response:', decryptedResponse);
-      
-      PaymentLogger.info('📋 Decrypted cancel response', {
+      console.log(`✅ [${requestId}] Cancel response decrypted:`, Object.keys(decryptedResponse));
+      PaymentLogger.info('Cancel response decrypted successfully', {
         requestId,
-        responseFields: Object.keys(decryptedResponse),
-        responseCode: decryptedResponse.RESPONSE_CODE,
-        responseMessage: decryptedResponse.RESPONSE_MESSAGE,
-        orderRefNumber: decryptedResponse.ORDER_REF_NUMBER
+        responseFields: Object.keys(decryptedResponse)
       });
       
     } catch (decryptError) {
-      console.error('❌ Primary decryption failed:', decryptError);
-      PaymentLogger.error('❌ Failed to decrypt cancel response', decryptError, { requestId });
-      
-      // Try alternative decryption method
-      try {
-        console.log('🔄 Trying alternative NodeRSA decryption method...');
-        decryptedResponse = decryptHBLResponseWithNodeRSA(encryptedData, process.env.MERCHANT_PRIVATE_KEY_PEM);
-        console.log('✅ Alternative decryption succeeded:', decryptedResponse);
-        PaymentLogger.info('✅ Alternative decryption succeeded', { requestId });
-      } catch (altError) {
-        console.error('❌ Alternative decryption also failed:', altError);
-        PaymentLogger.error('❌ Alternative decryption also failed', altError, { requestId });
-        
-        // Since both decryption methods failed, redirect with error but provide what info we can
-        console.log('🚫 Both decryption methods failed - redirecting with general error');
-        return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?error=decrypt_failed&reason=decryption_error`);
-      }
+      console.error(`❌ [${requestId}] Cancel decryption failed:`, decryptError);
+      PaymentLogger.error('Failed to decrypt cancel response', decryptError, { requestId });
+      return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?reason=decrypt_failed`);
     }
 
-    // Extract response parameters (HBL uses these field names according to PHP sample)
+    // Extract parameters
     const { 
       RESPONSE_CODE: responseCode,
       RESPONSE_MESSAGE: responseMessage,
       ORDER_REF_NUMBER: orderRefNumber,
-      PAYMENT_TYPE: paymentType,
-      // Alternative field names that might also be used
-      ORDER_ID: orderId,
-      SESSION_ID: sessionId,
-      AMOUNT: amount,
-      CURRENCY: currency,
-      MERCHANT_ORDER_NO: merchantOrderNo
+      SESSION_ID: sessionId
     } = decryptedResponse;
 
-    console.log('📊 Extracted parameters:', {
-      responseCode,
-      responseMessage,
-      orderRefNumber,
-      paymentType,
-      orderId,
-      sessionId,
-      amount,
-      currency,
-      merchantOrderNo
-    });
-
-    // Find the payment record in database
+    // Find and update payment record
     let payment = null;
     
-    // Try to find payment by various identifiers
-    if (orderRefNumber || orderId || sessionId || merchantOrderNo) {
-      try {
-        console.log('🔍 Searching for payment record...');
-        
-        // Try to find by session ID first
-        if (sessionId) {
-          payment = await paymentModel.findOne({ sessionId: sessionId });
-          console.log('🔍 Search by sessionId result:', !!payment);
-        }
-        
-        // If not found, try by order reference number
-        if (!payment && orderRefNumber) {
-          payment = await paymentModel.findOne({ orderId: orderRefNumber });
-          console.log('🔍 Search by orderRefNumber result:', !!payment);
-        }
-        
-        // If not found, try by orderId
-        if (!payment && orderId) {
-          payment = await paymentModel.findOne({ orderId: orderId });
-          console.log('🔍 Search by orderId result:', !!payment);
-        }
-        
-        // If still not found, try by merchant order number
-        if (!payment && merchantOrderNo) {
-          payment = await paymentModel.findOne({ merchantOrderNo: merchantOrderNo });
-          console.log('🔍 Search by merchantOrderNo result:', !!payment);
-        }
-        
-        PaymentLogger.info('💾 Payment record search result', {
-          requestId,
-          found: !!payment,
-          paymentId: payment?.paymentId,
-          searchCriteria: { orderRefNumber, orderId, sessionId, merchantOrderNo }
-        });
-        
-      } catch (dbError) {
-        console.error('❌ Database error while finding payment:', dbError);
-        PaymentLogger.error('❌ Database error while finding payment', dbError, { requestId });
-      }
-    } else {
-      console.warn('⚠️ No identifiers found to search for payment record');
+    if (sessionId) {
+      payment = await paymentModel.findOne({ sessionId: sessionId });
     }
-
-    // Update payment record if found
-    if (payment) {
-      try {
-        console.log('💾 Updating payment record as cancelled...');
-        await paymentModel.findByIdAndUpdate(payment._id, {
-          status: 'cancelled',
-          responseCode: responseCode,
-          responseMessage: responseMessage,
-          paymentType: paymentType,
-          cancelledAt: new Date(),
-          hblResponse: decryptedResponse
-        });
-
-        console.log('✅ Payment record updated successfully');
-        PaymentLogger.info('✅ Payment record updated as cancelled', {
-          requestId,
-          paymentId: payment.paymentId,
-          responseCode,
-          responseMessage
-        });
-        
-        // Send notification if needed
-        if (payment.userId) {
-          try {
-            await notificationService.sendPaymentCancellationNotification(payment.userId, {
-              orderId: orderRefNumber || payment.orderId,
-              amount: payment.amount,
-              reason: responseMessage || 'Payment cancelled by user'
-            });
-          } catch (notifError) {
-            console.warn('⚠️ Failed to send cancellation notification:', notifError.message);
-            PaymentLogger.warn('⚠️ Failed to send cancellation notification', {
-              requestId,
-              error: notifError.message
-            });
-          }
-        }
-        
-      } catch (updateError) {
-        console.error('❌ Failed to update payment record:', updateError);
-        PaymentLogger.error('❌ Failed to update payment record', updateError, { requestId });
-      }
-    } else {
-      console.warn('⚠️ Payment record not found - continuing with cancellation anyway');
-      PaymentLogger.warn('⚠️ Payment record not found for cancellation', {
-        requestId,
-        orderRefNumber,
-        orderId,
-        sessionId,
-        merchantOrderNo
+    
+    if (!payment && orderRefNumber) {
+      payment = await paymentModel.findOne({ 
+        $or: [
+          { orderRefNumber: orderRefNumber },
+          { orderId: orderRefNumber },
+          { transactionId: orderRefNumber }
+        ]
       });
     }
 
-    // Log final response
-    const duration = Date.now() - startTime;
-    PaymentLogger.info('🏁 Payment cancellation completed', {
-      requestId,
-      duration: `${duration}ms`,
-      responseCode,
-      responseMessage,
-      found: !!payment
-    });
+    if (payment) {
+      await payment.updateOne({
+        status: 'cancelled',
+        responseCode: responseCode,
+        responseMessage: responseMessage,
+        cancelledAt: new Date(),
+        updatedAt: new Date()
+      });
+      
+      console.log(`🚫 [${requestId}] Payment record updated to cancelled`);
+    }
 
-    // Redirect to frontend with cancellation details
-    const redirectParams = new URLSearchParams({
-      status: 'cancelled',
-      code: responseCode || 'user_cancelled',
-      message: responseMessage || 'Payment cancelled by user',
-      orderId: orderRefNumber || orderId || 'unknown',
-      amount: amount || (payment?.amount),
-      currency: currency || (payment?.currency) || 'PKR'
-    });
-
-    console.log('🔗 Redirecting to frontend with params:', redirectParams.toString());
-    return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?${redirectParams.toString()}`);
+    // Redirect to cancel page
+    const cancelUrl = `${process.env.FRONTEND_URL}/payment/cancel?code=${responseCode}&message=${encodeURIComponent(responseMessage)}&ref=${orderRefNumber}`;
+    console.log(`🚫 [${requestId}] Redirecting to cancel page`);
+    
+    return res.redirect(cancelUrl);
 
   } catch (error) {
-    const duration = Date.now() - startTime;
-    console.error('💥 Unexpected error in payment cancellation:', error);
-    PaymentLogger.error('💥 Unexpected error in payment cancellation', error, {
-      requestId,
-      duration: `${duration}ms`
-    });
-
-    return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?error=server_error`);
+    console.error(`❌ [${requestId}] Payment cancel handler error:`, error);
+    PaymentLogger.error('Payment cancel handler error', error, { requestId });
+    return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?reason=server_error`);
   }
 });
 
@@ -1450,51 +1275,36 @@ module.exports.handlePaymentReturn = asyncErrorHandler(async (req, res) => {
 // Add this to your payment.controller.js
 
 module.exports.handlePaymentSuccess = asyncErrorHandler(async (req, res) => {
-  const requestId = crypto.randomUUID();
-  const startTime = Date.now();
-
+ const requestId = crypto.randomUUID();
+  
   try {
-    PaymentLogger.info('✅ Payment success request received', {
-      requestId,
-      query: req.query,
-      userAgent: req.get('User-Agent'),
-      ip: req.ip
-    });
+    console.log(`\n🎉 [${requestId}] Payment success callback received`);
+    PaymentLogger.info('Payment success callback initiated', { requestId });
 
-    // Extract encrypted data from query parameter
-    const { data: encryptedData } = req.query;
+    const encryptedData = req.query.data || req.body.data;
     
     if (!encryptedData) {
-      PaymentLogger.warn('No encrypted data in success request', { requestId });
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/success?error=missing_data`);
+      console.log('❌ No encrypted data received in success callback');
+      PaymentLogger.error('No encrypted data in success callback', null, { requestId });
+      return res.redirect(`${process.env.FRONTEND_URL}/payment/error?reason=missing_data`);
     }
 
-    // Check if merchant private key exists
+    console.log(`📝 [${requestId}] Encrypted data length: ${encryptedData.length}`);
+
     if (!process.env.MERCHANT_PRIVATE_KEY_PEM) {
-      PaymentLogger.error('MERCHANT_PRIVATE_KEY_PEM not configured', null, { requestId });
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/success?error=config_error`);
+      console.error('❌ Merchant private key not configured');
+      PaymentLogger.error('Merchant private key not configured', null, { requestId });
+      return res.redirect(`${process.env.FRONTEND_URL}/payment/error?reason=config_error`);
     }
 
-    // Decrypt the response data using merchant private key
+    // Decrypt the response using the updated function
     let decryptedResponse = {};
     try {
-      // For now, skip decryption until HBL fixes the key issue
-      // decryptedResponse = decryptHBLResponse(encryptedData, process.env.MERCHANT_PRIVATE_KEY_PEM);
+      console.log(`🔐 [${requestId}] Attempting decryption with updated function...`);
+      decryptedResponse = decryptHBLResponse(encryptedData, process.env.MERCHANT_PRIVATE_KEY_PEM);
       
-      // Temporary: Parse from URL parameters instead
-      const urlParams = req.query;
-      decryptedResponse = {
-        RESPONSE_CODE: urlParams.responseCode || '0',
-        RESPONSE_MESSAGE: urlParams.responseMessage || 'Payment Successful',
-        ORDER_REF_NUMBER: urlParams.orderRefNumber || urlParams.orderId,
-        SESSION_ID: urlParams.sessionId,
-        AMOUNT: urlParams.amount,
-        CURRENCY: urlParams.currency || 'PKR',
-        TRANSACTION_ID: urlParams.transactionId,
-        PAYMENT_TYPE: urlParams.paymentType || 'CARD'
-      };
-      
-      PaymentLogger.info('📋 Processed success response', {
+      console.log(`✅ [${requestId}] Decryption successful! Response fields:`, Object.keys(decryptedResponse));
+      PaymentLogger.info('Payment response decrypted successfully', {
         requestId,
         responseFields: Object.keys(decryptedResponse),
         responseCode: decryptedResponse.RESPONSE_CODE,
@@ -1502,136 +1312,134 @@ module.exports.handlePaymentSuccess = asyncErrorHandler(async (req, res) => {
       });
       
     } catch (decryptError) {
-      PaymentLogger.error('Failed to decrypt success response', decryptError, { requestId });
-      // Continue with available URL parameters
-      decryptedResponse = {
-        RESPONSE_CODE: '0',
-        RESPONSE_MESSAGE: 'Payment Successful',
-        ORDER_REF_NUMBER: req.query.orderId || 'unknown'
-      };
+      console.error(`❌ [${requestId}] Decryption failed:`, decryptError);
+      PaymentLogger.error('Failed to decrypt payment response', decryptError, { requestId });
+      return res.redirect(`${process.env.FRONTEND_URL}/payment/error?reason=decrypt_failed`);
     }
 
+    // Extract response parameters based on HBL documentation
     const { 
       RESPONSE_CODE: responseCode,
       RESPONSE_MESSAGE: responseMessage,
       ORDER_REF_NUMBER: orderRefNumber,
+      PAYMENT_TYPE: paymentType,
+      ORDER_ID: orderId,
       SESSION_ID: sessionId,
       AMOUNT: amount,
       CURRENCY: currency,
-      TRANSACTION_ID: transactionId,
-      PAYMENT_TYPE: paymentType
+      MERCHANT_ORDER_NO: merchantOrderNo
     } = decryptedResponse;
 
-    // Find the payment record in database
-    let payment = null;
-    
-    if (sessionId || orderRefNumber || transactionId) {
-      try {
-        const searchCriteria = {
-          $or: [
-            ...(sessionId ? [{ sessionId: sessionId }] : []),
-            ...(orderRefNumber ? [{ orderId: orderRefNumber }] : []),
-            ...(transactionId ? [{ transactionId: transactionId }] : [])
-          ]
-        };
-        
-        payment = await paymentModel.findOne(searchCriteria);
-        
-        PaymentLogger.info('Payment record search result', {
-          requestId,
-          found: !!payment,
-          paymentId: payment?.paymentId,
-          searchCriteria
-        });
-        
-      } catch (dbError) {
-        PaymentLogger.error('Database error while finding payment', dbError, { requestId });
-      }
-    }
-
-    // Update payment record if found
-    if (payment) {
-      try {
-        await paymentModel.findByIdAndUpdate(payment._id, {
-          status: 'completed',
-          responseCode: responseCode,
-          responseMessage: responseMessage,
-          paymentType: paymentType,
-          transactionId: transactionId,
-          paidAt: new Date(),
-          hblResponse: decryptedResponse
-        });
-
-        // Update associated booking
-        if (payment.bookingId) {
-          await bookingModel.findByIdAndUpdate(payment.bookingId, {
-            paymentStatus: 'paid',
-            status: 'confirmed',
-            updatedAt: new Date()
-          });
-        }
-
-        PaymentLogger.info('Payment record updated as completed', {
-          requestId,
-          paymentId: payment.paymentId,
-          responseCode,
-          responseMessage
-        });
-        
-        // Send success notification
-        if (payment.userId) {
-          try {
-            await notificationService.sendPaymentConfirmation({
-              userId: payment.userId,
-              paymentId: payment.paymentId,
-              amount: payment.amount,
-              orderId: orderRefNumber || payment.orderId
-            });
-          } catch (notifError) {
-            PaymentLogger.warn('Failed to send success notification', {
-              requestId,
-              error: notifError.message
-            });
-          }
-        }
-        
-      } catch (updateError) {
-        PaymentLogger.error('Failed to update payment record', updateError, { requestId });
-      }
-    }
-
-    // Log completion
-    const duration = Date.now() - startTime;
-    PaymentLogger.info('Payment success processing completed', {
-      requestId,
-      duration: `${duration}ms`,
+    console.log(`📊 [${requestId}] Extracted HBL response parameters:`, {
       responseCode,
       responseMessage,
-      found: !!payment
+      orderRefNumber,
+      paymentType,
+      sessionId,
+      amount
     });
 
-    // Redirect to frontend with success details
-    const redirectParams = new URLSearchParams({
-      status: 'success',
-      code: responseCode || '0',
-      message: responseMessage || 'Payment completed successfully',
-      paymentId: payment?.paymentId || 'unknown',
-      orderId: orderRefNumber || payment?.orderId || 'unknown',
-      amount: amount || payment?.amount || '0',
-      currency: currency || payment?.currency || 'PKR',
-      transactionId: transactionId || payment?.transactionId || ''
+    // Check if payment was successful (codes 0 or 100 indicate success)
+    const isSuccessful = responseCode === '0' || responseCode === '100' || responseCode === 0 || responseCode === 100;
+    
+    if (!isSuccessful) {
+      console.log(`❌ [${requestId}] Payment not successful. Response code: ${responseCode}`);
+      PaymentLogger.error('Payment transaction failed', null, { 
+        requestId, 
+        responseCode, 
+        responseMessage 
+      });
+      
+      return res.redirect(`${process.env.FRONTEND_URL}/payment/failed?code=${responseCode}&message=${encodeURIComponent(responseMessage)}&ref=${orderRefNumber}`);
+    }
+
+    // Find the payment record
+    let payment = null;
+    
+    if (sessionId) {
+      payment = await paymentModel.findOne({ sessionId: sessionId });
+      console.log(`🔍 [${requestId}] Search by sessionId result:`, !!payment);
+    }
+    
+    if (!payment && orderRefNumber) {
+      payment = await paymentModel.findOne({ 
+        $or: [
+          { orderRefNumber: orderRefNumber },
+          { orderId: orderRefNumber },
+          { transactionId: orderRefNumber }
+        ]
+      });
+      console.log(`🔍 [${requestId}] Search by orderRefNumber result:`, !!payment);
+    }
+
+    if (!payment) {
+      console.log(`❌ [${requestId}] Payment record not found for sessionId: ${sessionId}, orderRef: ${orderRefNumber}`);
+      PaymentLogger.error('Payment record not found', null, { 
+        requestId, 
+        sessionId, 
+        orderRefNumber 
+      });
+      
+      return res.redirect(`${process.env.FRONTEND_URL}/payment/error?reason=payment_not_found&ref=${orderRefNumber}`);
+    }
+
+    // Update payment record with success status
+    const updateData = {
+      status: 'completed',
+      responseCode: responseCode,
+      responseMessage: responseMessage,
+      paymentType: paymentType,
+      completedAt: new Date(),
+      updatedAt: new Date(),
+      hblResponse: decryptedResponse // Store full response for reference
+    };
+
+    await payment.updateOne(updateData);
+
+    console.log(`✅ [${requestId}] Payment record updated successfully`);
+    PaymentLogger.info('Payment completed successfully', {
+      requestId,
+      paymentId: payment._id,
+      amount: payment.amount,
+      responseCode
     });
 
-    return res.redirect(`${process.env.FRONTEND_URL}/payment/success?${redirectParams.toString()}`);
+    // Update related booking if exists
+    if (payment.bookingId) {
+      try {
+        await bookingModel.findByIdAndUpdate(payment.bookingId, {
+          paymentStatus: 'paid',
+          paidAt: new Date()
+        });
+        console.log(`🎟️ [${requestId}] Booking updated to paid status`);
+      } catch (bookingError) {
+        console.warn(`⚠️ [${requestId}] Failed to update booking:`, bookingError.message);
+      }
+    }
+
+    // Send success notification
+    try {
+      await notificationService.sendPaymentSuccess({
+        userId: payment.userId,
+        amount: payment.amount,
+        transactionId: payment.transactionId,
+        paymentMethod: 'HBLPay'
+      });
+      console.log(`📧 [${requestId}] Success notification sent`);
+    } catch (notificationError) {
+      console.warn(`⚠️ [${requestId}] Failed to send notification:`, notificationError.message);
+    }
+
+    // Redirect to success page
+    const successUrl = `${process.env.FRONTEND_URL}/payment/success?ref=${payment.transactionId}&amount=${payment.amount}`;
+    console.log(`🎉 [${requestId}] Redirecting to success page: ${successUrl}`);
+    
+    return res.redirect(successUrl);
 
   } catch (error) {
-    const duration = Date.now() - startTime;
-    PaymentLogger.error('Unexpected error in payment success processing', error, {
-      requestId,
-      duration: `${duration}ms`
-    });
-
-    return res.redirect(`${process.env.FRONTEND_URL}/payment/success?error=server_error`);
+    console.error(`❌ [${requestId}] Payment success handler error:`, error);
+    PaymentLogger.error('Payment success handler error', error, { requestId });
+    return res.redirect(`${process.env.FRONTEND_URL}/payment/error?reason=server_error`);
   }
 });
 
@@ -1835,25 +1643,36 @@ function validateConfiguration() {
   }
 }
 
-// Health check
+
+// Health check with decryption validation
 module.exports.healthCheck = asyncErrorHandler(async (req, res) => {
   try {
     validateConfiguration();
+
+    // Test decryption function availability
+    const decryptionTest = {
+      functionAvailable: typeof decryptHBLResponse === 'function',
+      nodeRsaAvailable: !!NodeRSA,
+      privateKeyConfigured: !!process.env.MERCHANT_PRIVATE_KEY_PEM
+    };
 
     return ApiResponse.success(res, {
       status: 'healthy',
       timestamp: new Date().toISOString(),
       environment: process.env.NODE_ENV,
       gateway: 'HBLPay',
-      version: '1.0.0',
+      version: '2.0.0', // Updated version with new decryption
       configuration: {
         userId: !!HBLPAY_USER_ID,
         password: !!HBLPAY_PASSWORD,
         publicKey: !!HBL_PUBLIC_KEY,
+        privateKey: !!process.env.MERCHANT_PRIVATE_KEY_PEM,
         apiUrl: isProduction ? HBL_PRODUCTION_URL : HBL_SANDBOX_URL,
         redirectUrl: isProduction ? HBL_PRODUCTION_REDIRECT : HBL_SANDBOX_REDIRECT
-      }
-    }, 'Payment gateway is healthy');
+      },
+      decryption: decryptionTest
+    }, 'Payment gateway is healthy with updated decryption');
+    
   } catch (error) {
     return ApiResponse.error(res, 'Payment gateway configuration error: ' + error.message, 503);
   }
@@ -1862,196 +1681,111 @@ module.exports.healthCheck = asyncErrorHandler(async (req, res) => {
 
 
 
-// Add this temporary debug function to your controller
-module.exports.testDecryption = (req, res) => {
+// Test endpoint for the new decryption function
+module.exports.testDecryption = asyncErrorHandler(async (req, res) => {
+  const requestId = crypto.randomUUID();
+  
   try {
-    const testData = "QkNURVdRbjB4a0RSTlA2bnNuWTdIekw5NHRIeDcxUDZSQjdGQ3Uydjlhc0VJK0RucGE2NmhTcjFJVnJ4YUxTWWNUNW4zVGxuUWgxcTJRQVlGbmVoL2g0RHhKenlrdVlkQjVoZkFkYTJwRzBlVE12OS9hNFpKeEY2Nm44TUZnOXlONTh2THlocy9kRUFSSjFFRjJxV1JGU1JVQ20vU0FHYXJzTzVESGE5VjdlcVhUUndiejQyWklUSG4zalFhTndlbFRNT2tpOEZNK2JFZFVoMHlENllyYzFYNTZaOUx5Z2tzTVJzeXFUZ0ZJcHZPOEg3ZmpVNmYybWpJMEhrSGNxOFA3bjFDNmk3aXdRdnh0RUk3TGFsZmVzWHlCa2NlTWJGT2xNKzNkWm9MV3pla2NrOGpoRzhzK2cvSXNSdWtKb21zYTV2bkZic0cwdnV2b0orQWF1RUlnPT0=";
+    console.log(`\n🧪 [${requestId}] Testing HBL decryption function...`);
+    
+    // Sample encrypted data for testing (replace with actual test data from HBL)
+    const testData = "RzdYbmlpTFlNRUU0alNjTzkvTmZIZ2YyWktwWkZsbkNzZTZiRnhvczRyWUdJUTl0ejcwYUU3R3k2cUI0KzBWTmRNejdyZGs2LzVQb2VqTy9hMTRYcU55bXdJdm55WjJ6c3YvV3pxNFI4Rkp0djlFK3A1QW1JSmJvREoyc3E1Sm95eTRRR1dzN2Y1RVBmbFZJbEVoSEpMeUNuWWlWSWRKUFFwdWxzZ2tpTW5rbis2SzhzMHdVQnEyNXI3OXBjY2VORWFlVGhsZVdqaDZrS1dtTVFmSXAxZFF4TExyMTlwdkJpeHI4V0ZSbWthcUZKc2xwL2t3Q0dMSHMydm93YXBpcDN2RnR0cHRTR3hoNExtNk1CSHRCenQ4endubHVqc3R4NUZvMjNTalBGZmJycU1qS05yc0hMY283OXNraUV2YlFHVk9QbnNscmpuM1A2TW9UYVBPdi9RPT0%3D";
     
     const results = [];
     
-    console.log('🧪 Testing decryption with different keys...');
-    
-    // Test 1: Your Private Key
-    console.log('\n🔑 Test 1: Using MERCHANT_PRIVATE_KEY_PEM');
+    // Test 1: Merchant Private Key (This should work)
+    console.log(`\n🔑 [${requestId}] Test 1: Using MERCHANT_PRIVATE_KEY_PEM`);
     try {
-      const result1 = decryptHBLResponse(testData, process.env.MERCHANT_PRIVATE_KEY_PEM);
-      results.push({ key: 'MERCHANT_PRIVATE_KEY_PEM', success: true, result: result1 });
-      console.log('✅ SUCCESS with merchant private key:', result1);
-    } catch (error1) {
-      results.push({ key: 'MERCHANT_PRIVATE_KEY_PEM', success: false, error: error1.message });
-      console.log('❌ FAILED with merchant private key:', error1.message);
-    }
-    
-    // Test 2: Your Public Key (shouldn't work but let's try)
-    console.log('\n🔑 Test 2: Using MERCHANT_PUBLIC_KEY_PEM');
-    try {
-      const result2 = decryptHBLResponse(testData, process.env.MERCHANT_PUBLIC_KEY_PEM);
-      results.push({ key: 'MERCHANT_PUBLIC_KEY_PEM', success: true, result: result2 });
-      console.log('✅ SUCCESS with merchant public key:', result2);
-    } catch (error2) {
-      results.push({ key: 'MERCHANT_PUBLIC_KEY_PEM', success: false, error: error2.message });
-      console.log('❌ FAILED with merchant public key:', error2.message);
-    }
-    
-    // Test 3: HBL Public Key
-    console.log('\n🔑 Test 3: Using HBL_PUBLIC_KEY_PEM');
-    try {
-      const result3 = decryptHBLResponse(testData, process.env.HBL_PUBLIC_KEY_PEM);
-      results.push({ key: 'HBL_PUBLIC_KEY_PEM', success: true, result: result3 });
-      console.log('✅ SUCCESS with HBL public key:', result3);
-    } catch (error3) {
-      results.push({ key: 'HBL_PUBLIC_KEY_PEM', success: false, error: error3.message });
-      console.log('❌ FAILED with HBL public key:', error3.message);
-    }
-    
-    // Test 4: Try without block processing (single chunk)
-    console.log('\n🔑 Test 4: Single chunk decryption with merchant private key');
-    try {
-      const NodeRSA = require('node-rsa');
-      const privateKey = new NodeRSA(process.env.MERCHANT_PRIVATE_KEY_PEM);
-      privateKey.setOptions({ encryptionScheme: 'pkcs1' });
+      if (!process.env.MERCHANT_PRIVATE_KEY_PEM) {
+        throw new Error('MERCHANT_PRIVATE_KEY_PEM not configured');
+      }
       
-      const decryptedSingle = privateKey.decrypt(testData, 'utf8');
-      results.push({ key: 'MERCHANT_PRIVATE_KEY_PEM_SINGLE', success: true, result: decryptedSingle });
-      console.log('✅ SUCCESS with single chunk:', decryptedSingle);
-    } catch (error4) {
-      results.push({ key: 'MERCHANT_PRIVATE_KEY_PEM_SINGLE', success: false, error: error4.message });
-      console.log('❌ FAILED with single chunk:', error4.message);
+      const result1 = decryptHBLResponse(testData, process.env.MERCHANT_PRIVATE_KEY_PEM);
+      results.push({ 
+        key: 'MERCHANT_PRIVATE_KEY_PEM', 
+        success: true, 
+        result: result1,
+        responseCode: result1.RESPONSE_CODE,
+        responseMessage: result1.RESPONSE_MESSAGE,
+        orderRef: result1.ORDER_REF_NUMBER
+      });
+      console.log(`✅ [${requestId}] SUCCESS with merchant private key:`, result1);
+      
+    } catch (error1) {
+      results.push({ 
+        key: 'MERCHANT_PRIVATE_KEY_PEM', 
+        success: false, 
+        error: error1.message 
+      });
+      console.log(`❌ [${requestId}] FAILED with merchant private key:`, error1.message);
+    }
+    
+    // Test 2: Configuration check
+    console.log(`\n⚙️ [${requestId}] Test 2: Configuration validation`);
+    const configCheck = {
+      merchantPrivateKey: !!process.env.MERCHANT_PRIVATE_KEY_PEM,
+      merchantPublicKey: !!process.env.MERCHANT_PUBLIC_KEY_PEM,
+      hblPublicKey: !!process.env.HBL_PUBLIC_KEY_PEM,
+      hblUserId: !!process.env.HBLPAY_USER_ID,
+      hblPassword: !!process.env.HBLPAY_PASSWORD,
+      sandboxUrl: !!process.env.HBL_SANDBOX_API_URL,
+      productionUrl: !!process.env.HBL_PRODUCTION_URL
+    };
+    
+    results.push({
+      key: 'CONFIGURATION_CHECK',
+      success: true,
+      result: configCheck
+    });
+    
+    // Test 3: Base64 decoding validation
+    console.log(`\n📦 [${requestId}] Test 3: Base64 decoding validation`);
+    try {
+      const decodedBuffer = Buffer.from(testData, 'base64');
+      results.push({
+        key: 'BASE64_DECODING',
+        success: true,
+        result: {
+          originalLength: testData.length,
+          decodedLength: decodedBuffer.length,
+          expectedBlocks: Math.ceil(decodedBuffer.length / 512)
+        }
+      });
+      console.log(`✅ [${requestId}] Base64 decoding successful - ${decodedBuffer.length} bytes`);
+      
+    } catch (base64Error) {
+      results.push({
+        key: 'BASE64_DECODING',
+        success: false,
+        error: base64Error.message
+      });
+      console.log(`❌ [${requestId}] Base64 decoding failed:`, base64Error.message);
     }
     
     // Summary
-    console.log('\n📊 SUMMARY:');
+    console.log(`\n📊 [${requestId}] DECRYPTION TEST SUMMARY:`);
     results.forEach(r => {
-      console.log(`${r.success ? '✅' : '❌'} ${r.key}: ${r.success ? 'SUCCESS' : r.error}`);
+      const status = r.success ? '✅' : '❌';
+      console.log(`${status} ${r.key}: ${r.success ? 'SUCCESS' : r.error}`);
     });
     
-    res.json({ 
-      success: true, 
-      message: 'Tested all available keys',
-      results: results,
-      testData: {
-        length: testData.length,
-        preview: testData.substring(0, 50) + '...'
+    // Return results
+    return ApiResponse.success(res, {
+      requestId,
+      timestamp: new Date().toISOString(),
+      testResults: results,
+      summary: {
+        total: results.length,
+        successful: results.filter(r => r.success).length,
+        failed: results.filter(r => !r.success).length
       }
-    });
+    }, 'HBL decryption test completed');
     
   } catch (error) {
-    console.error('❌ Overall test failed:', error);
-    res.json({ success: false, error: error.message });
+    console.error(`❌ [${requestId}] Test decryption error:`, error);
+    return ApiResponse.error(res, 'Decryption test failed: ' + error.message, 500);
   }
-};
+});
 
 
 
-module.exports.testBlockSizes = (req, res) => {
-  try {
-    const testData = "QkNURVdRbjB4a0RSTlA2bnNuWTdIekw5NHRIeDcxUDZSQjdGQ3Uydjlhc0VJK0RucGE2NmhTcjFJVnJ4YUxTWWNUNW4zVGxuUWgxcTJRQVlGbmVoL2g0RHhKenlrdVlkQjVoZkFkYTJwRzBlVE12OS9hNFpKeEY2Nm44TUZnOXlONTh2THlocy9kRUFSSjFFRjJxV1JGU1JVQ20vU0FHYXJzTzVESGE5VjdlcVhUUndiejQyWklUSG4zalFhTndlbFRNT2tpOEZNK2JFZFVoMHlENllyYzFYNTZaOUx5Z2tzTVJzeXFUZ0ZJcHZPOEg3ZmpVNmYybWpJMEhrSGNxOFA3bjFDNmk3aXdRdnh0RUk3TGFsZmVzWHlCa2NlTWJGT2xNKzNkWm9MV3pla2NrOGpoRzhzK2cvSXNSdWtKb21zYTV2bkZic0cwdnV2b0orQWF1RUlnPT0=";
-    
-    const NodeRSA = require('node-rsa');
-    const privateKey = new NodeRSA(process.env.MERCHANT_PRIVATE_KEY_PEM);
-    privateKey.setOptions({ encryptionScheme: 'pkcs1' });
-    
-    const encryptedBuffer = Buffer.from(testData, 'base64');
-    console.log('Buffer length:', encryptedBuffer.length);
-    
-    const results = [];
-    const blockSizes = [256, 344, 512, 1024]; // Try different block sizes
-    
-    for (const blockSize of blockSizes) {
-      console.log(`\nTrying block size: ${blockSize}`);
-      try {
-        let decryptedData = '';
-        
-        for (let i = 0; i < encryptedBuffer.length; i += blockSize) {
-          const chunk = encryptedBuffer.slice(i, i + blockSize);
-          console.log(`Processing chunk: ${chunk.length} bytes`);
-          
-          const decryptedChunk = privateKey.decrypt(chunk, 'utf8');
-          decryptedData += decryptedChunk;
-        }
-        
-        console.log(`SUCCESS with block size ${blockSize}:`, decryptedData);
-        results.push({ blockSize, success: true, result: decryptedData });
-        
-      } catch (error) {
-        console.log(`FAILED with block size ${blockSize}:`, error.message);
-        results.push({ blockSize, success: false, error: error.message });
-      }
-    }
-    
-    res.json({ success: true, results });
-    
-  } catch (error) {
-    res.json({ success: false, error: error.message });
-  }
-};
-
-module.exports.testPadding = (req, res) => {
-  try {
-    const testData = "QkNURVdRbjB4a0RSTlA2bnNuWTdIekw5NHRIeDcxUDZSQjdGQ3Uydjlhc0VJK0RucGE2NmhTcjFJVnJ4YUxTWWNUNW4zVGxuUWgxcTJRQVlGbmVoL2g0RHhKenlrdVlkQjVoZkFkYTJwRzBlVE12OS9hNFpKeEY2Nm44TUZnOXlONTh2THlocy9kRUFSSjFFRjJxV1JGU1JVQ20vU0FHYXJzTzVESGE5VjdlcVhUUndiejQyWklUSG4zalFhTndlbFRNT2tpOEZNK2JFZFVoMHlENllyYzFYNTZaOUx5Z2tzTVJzeXFUZ0ZJcHZPOEg3ZmpVNmYybWpJMEhrSGNxOFA3bjFDNmk3aXdRdnh0RUk3TGFsZmVzWHlCa2NlTWJGT2xNKzNkWm9MV3pla2NrOGpoRzhzK2cvSXNSdWtKb21zYTV2bkZic0cwdnV2b0orQWF1RUlnPT0=";
-    
-    const NodeRSA = require('node-rsa');
-    const results = [];
-    const schemes = ['pkcs1', 'pkcs1_oaep', 'oaep'];
-    
-    for (const scheme of schemes) {
-      console.log(`\nTrying encryption scheme: ${scheme}`);
-      try {
-        const privateKey = new NodeRSA(process.env.MERCHANT_PRIVATE_KEY_PEM);
-        privateKey.setOptions({ encryptionScheme: scheme });
-        
-        const decrypted = privateKey.decrypt(testData, 'utf8');
-        console.log(`SUCCESS with ${scheme}:`, decrypted);
-        results.push({ scheme, success: true, result: decrypted });
-        
-      } catch (error) {
-        console.log(`FAILED with ${scheme}:`, error.message);
-        results.push({ scheme, success: false, error: error.message });
-      }
-    }
-    
-    res.json({ success: true, results });
-    
-  } catch (error) {
-    res.json({ success: false, error: error.message });
-  }
-};
-
-
-module.exports.testKeyPairValidity = (req, res) => {
-  try {
-    const NodeRSA = require('node-rsa');
-    
-    // Load your private key
-    const privateKey = new NodeRSA(process.env.MERCHANT_PRIVATE_KEY_PEM);
-    
-    // Extract corresponding public key
-    const publicKeyFromPrivate = privateKey.exportKey('public');
-    
-    // Test encrypt/decrypt cycle
-    const testMessage = "RESPONSE_CODE=0&RESPONSE_MESSAGE=Test&ORDER_REF_NUMBER=123";
-    
-    // Encrypt with public key
-    const encrypted = privateKey.encrypt(testMessage, 'base64');
-    
-    // Decrypt with private key
-    const decrypted = privateKey.decrypt(encrypted, 'utf8');
-    
-    const isValid = testMessage === decrypted;
-    
-    res.json({
-      success: true,
-      keyPairValid: isValid,
-      test: {
-        original: testMessage,
-        decrypted: decrypted,
-        match: isValid
-      },
-      publicKeyFromPrivate: publicKeyFromPrivate.substring(0, 100) + '...',
-      storedPublicKey: process.env.MERCHANT_PUBLIC_KEY_PEM?.substring(0, 100) + '...'
-    });
-    
-  } catch (error) {
-    res.json({ success: false, error: error.message });
-  }
-};

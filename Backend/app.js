@@ -9,6 +9,7 @@ const paymentRoutes = require('./routes/payment.route');
 const bookingRoutes = require('./routes/booking.route');
 const { globalErrorHandler } = require('./middlewares/errorHandler.middleware');
 const helmet = require('helmet');
+const ApiResponse = require('./utils/response.util');
 const rateLimit = require('express-rate-limit');
 
   
@@ -58,7 +59,6 @@ app.get('/', (req, res) => {
 })
 // Health check route
 app.get('/health', (req, res) => {
-    const ApiResponse = require('./utils/response.util');
     return ApiResponse.success(res, { 
         status: 'OK', 
         timestamp: new Date().toISOString(),
