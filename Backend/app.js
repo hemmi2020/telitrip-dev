@@ -9,7 +9,6 @@ const paymentRoutes = require('./routes/payment.route');
 const bookingRoutes = require('./routes/booking.route');
 const { globalErrorHandler } = require('./middlewares/errorHandler.middleware');
 const helmet = require('helmet');
-const ApiResponse = require('./utils/response.util');
 const rateLimit = require('express-rate-limit');
 
 
@@ -60,11 +59,7 @@ app.get('/', (req, res) => {
 });
 // Fixed Health check route
 app.get('/health', (req, res) => {
-<<<<<<< HEAD
-    return ApiResponse.success(res, { 
-=======
     res.status(200).json({ 
->>>>>>> aeb32ad345e32999e070ed5abdbdcc422586a051
         status: 'OK', 
         message: 'Server is running',
         timestamp: new Date().toISOString(),
@@ -87,5 +82,4 @@ console.log('bookingRoutes:', typeof bookingRoutes);
 // Handle 404s
 app.use(globalErrorHandler); // Handle all errors
 module.exports = app;
-
 

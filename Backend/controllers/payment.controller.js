@@ -117,36 +117,52 @@ function decryptHBLResponse(encryptedData, privateKeyPem) {
   }
 }
 
+
 // Alternative function using NodeRSA with proper block handling (if you prefer to keep NodeRSA)
-function decryptHBLResponseSafe(encryptedData, privateKeyPem, requestId = 'unknown') {
+function decryptHBLResponseWithNodeRSA(encryptedData, privateKeyPem) {
   try {
-    // Validate inputs
-    if (!encryptedData || typeof encryptedData !== 'string') {
-      throw new Error('Invalid encrypted data provided');
+    console.log('🔐 Starting HBL response decryption with NodeRSA...');
+    
+    const NodeRSA = require('node-rsa');
+    const DECRYPT_BLOCK_SIZE = 512;
+    
+    // Create RSA key from PEM format
+    const privateKey = new NodeRSA(privateKeyPem);
+    privateKey.setOptions({
+      encryptionScheme: 'pkcs1',
+      environment: 'node'
+    });
+    
+    // Decode base64 and split into blocks
+    const encryptedBuffer = Buffer.from(encryptedData, 'base64');
+    let decryptedData = '';
+    
+    // Process each 512-byte block
+    for (let i = 0; i < encryptedBuffer.length; i += DECRYPT_BLOCK_SIZE) {
+      const chunk = encryptedBuffer.slice(i, i + DECRYPT_BLOCK_SIZE);
+      const decryptedChunk = privateKey.decrypt(chunk, 'utf8');
+      decryptedData += decryptedChunk;
     }
     
-    if (!privateKeyPem || typeof privateKeyPem !== 'string') {
-      throw new Error('Invalid private key provided');
+    console.log('✅ HBL response decrypted successfully with NodeRSA');
+    console.log('📄 Decrypted data:', decryptedData);
+    
+    // Parse query string format
+    const params = {};
+    const pairs = decryptedData.split('&');
+    
+    for (const pair of pairs) {
+      const [key, value] = pair.split('=');
+      if (key && value !== undefined) {
+        params[key] = decodeURIComponent(value);
+      }
     }
     
-    // Perform decryption
-    const result = decryptHBLResponse(encryptedData, privateKeyPem);
-    
-    // Log successful decryption
-    console.log(`✅ [${requestId}] HBL response decrypted successfully`);
-    
-    return result;
+    return params;
     
   } catch (error) {
-    console.error(`❌ [${requestId}] HBL decryption failed:`, error.message);
-    
-    // Return structured error result
-    return {
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString(),
-      requestId
-    };
+    console.error('❌ HBL response decryption with NodeRSA failed:', error);
+    throw new Error(`Failed to decrypt HBL response: ${error.message}`);
   }
 }
 
@@ -196,11 +212,9 @@ class PaymentLogger {
 
 
 
-
-
 // Updated handlePaymentCancel function with enhanced debugging
 module.exports.handlePaymentCancel = asyncErrorHandler(async (req, res) => {
-  const requestId = crypto.randomUUID();
+const requestId = crypto.randomUUID();
   
   try {
     console.log(`\n🚫 [${requestId}] Payment cancel callback received`);
@@ -285,6 +299,7 @@ module.exports.handlePaymentCancel = asyncErrorHandler(async (req, res) => {
     return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?reason=server_error`);
   }
 });
+
 
 
 // Enhanced payment status checker with detailed logging
@@ -1275,7 +1290,7 @@ module.exports.handlePaymentReturn = asyncErrorHandler(async (req, res) => {
 // Add this to your payment.controller.js
 
 module.exports.handlePaymentSuccess = asyncErrorHandler(async (req, res) => {
- const requestId = crypto.randomUUID();
+  const requestId = crypto.randomUUID();
   
   try {
     console.log(`\n🎉 [${requestId}] Payment success callback received`);
@@ -1442,6 +1457,7 @@ module.exports.handlePaymentSuccess = asyncErrorHandler(async (req, res) => {
     return res.redirect(`${process.env.FRONTEND_URL}/payment/error?reason=server_error`);
   }
 });
+
 
 
 // Handle webhook notifications
@@ -1643,7 +1659,6 @@ function validateConfiguration() {
   }
 }
 
-
 // Health check with decryption validation
 module.exports.healthCheck = asyncErrorHandler(async (req, res) => {
   try {
@@ -1689,7 +1704,7 @@ module.exports.testDecryption = asyncErrorHandler(async (req, res) => {
     console.log(`\n🧪 [${requestId}] Testing HBL decryption function...`);
     
     // Sample encrypted data for testing (replace with actual test data from HBL)
-    const testData = "RzdYbmlpTFlNRUU0alNjTzkvTmZIZ2YyWktwWkZsbkNzZTZiRnhvczRyWUdJUTl0ejcwYUU3R3k2cUI0KzBWTmRNejdyZGs2LzVQb2VqTy9hMTRYcU55bXdJdm55WjJ6c3YvV3pxNFI4Rkp0djlFK3A1QW1JSmJvREoyc3E1Sm95eTRRR1dzN2Y1RVBmbFZJbEVoSEpMeUNuWWlWSWRKUFFwdWxzZ2tpTW5rbis2SzhzMHdVQnEyNXI3OXBjY2VORWFlVGhsZVdqaDZrS1dtTVFmSXAxZFF4TExyMTlwdkJpeHI4V0ZSbWthcUZKc2xwL2t3Q0dMSHMydm93YXBpcDN2RnR0cHRTR3hoNExtNk1CSHRCenQ4endubHVqc3R4NUZvMjNTalBGZmJycU1qS05yc0hMY283OXNraUV2YlFHVk9QbnNscmpuM1A2TW9UYVBPdi9RPT0%3D";
+    const testData = req.body.testData || "QkNURVdRbjB4a0RSTlA2bnNuWTdIekw5NHRIeDcxUDZSQjdGQ3Uydjlhc0VJK0RucGE2NmhTcjFJVnJ4YUxTWWNUNW4zVGxuUWgxcTJRQVlGbmVoL2g0RHhKenlrdVlkQjVoZkFkYTJwRzBlVE12OS9hNFpKeEY2Nm44TUZnOXlONTh2THlocy9kRUFSSjFFRjJxV1JGU1JVQ20vU0FHYXJzTzVESGE5VjdlcVhUUndiejQyWklUSG4zalFhTndlbFRNT2tpOEZNK2JFZFVoMHlENllyYzFYNTZaOUx5Z2tzTVJzeXFUZ0ZJcHZPOEg3ZmpVNmYybWpJMEhrSGNxOFA3bjFDNmk3aXdRdnh0RUk3TGFsZmVzWHlCa2NlTWJGT2xNKzNkWm9MV3pla2NrOGpoRzhzK2cvSXNSdWtKb21zYTV2bkZic0cwdnV2b0orQWF1RUlnPT0=";
     
     const results = [];
     
@@ -1786,121 +1801,3 @@ module.exports.testDecryption = asyncErrorHandler(async (req, res) => {
     return ApiResponse.error(res, 'Decryption test failed: ' + error.message, 500);
   }
 });
-
-
-
-<<<<<<< HEAD
-=======
-module.exports.testBlockSizes = (req, res) => {
-  try {
-    const testData = "QkNURVdRbjB4a0RSTlA2bnNuWTdIekw5NHRIeDcxUDZSQjdGQ3Uydjlhc0VJK0RucGE2NmhTcjFJVnJ4YUxTWWNUNW4zVGxuUWgxcTJRQVlGbmVoL2g0RHhKenlrdVlkQjVoZkFkYTJwRzBlVE12OS9hNFpKeEY2Nm44TUZnOXlONTh2THlocy9kRUFSSjFFRjJxV1JGU1JVQ20vU0FHYXJzTzVESGE5VjdlcVhUUndiejQyWklUSG4zalFhTndlbFRNT2tpOEZNK2JFZFVoMHlENllyYzFYNTZaOUx5Z2tzTVJzeXFUZ0ZJcHZPOEg3ZmpVNmYybWpJMEhrSGNxOFA3bjFDNmk3aXdRdnh0RUk3TGFsZmVzWHlCa2NlTWJGT2xNKzNkWm9MV3pla2NrOGpoRzhzK2cvSXNSdWtKb21zYTV2bkZic0cwdnV2b0orQWF1RUlnPT0=";
-    
-    const NodeRSA = require('node-rsa');
-    const privateKey = new NodeRSA(process.env.MERCHANT_PRIVATE_KEY_PEM);
-    privateKey.setOptions({ encryptionScheme: 'pkcs1' });
-    
-    const encryptedBuffer = Buffer.from(testData, 'base64');
-    console.log('Buffer length:', encryptedBuffer.length);
-    
-    const results = [];
-    const blockSizes = [256, 344, 512, 1024]; // Try different block sizes
-    
-    for (const blockSize of blockSizes) {
-      console.log(`\nTrying block size: ${blockSize}`);
-      try {
-        let decryptedData = '';
-        
-        for (let i = 0; i < encryptedBuffer.length; i += blockSize) {
-          const chunk = encryptedBuffer.slice(i, i + blockSize);
-          console.log(`Processing chunk: ${chunk.length} bytes`);
-          
-          const decryptedChunk = privateKey.decrypt(chunk, 'utf8');
-          decryptedData += decryptedChunk;
-        }
-        
-        console.log(`SUCCESS with block size ${blockSize}:`, decryptedData);
-        results.push({ blockSize, success: true, result: decryptedData });
-        
-      } catch (error) {
-        console.log(`FAILED with block size ${blockSize}:`, error.message);
-        results.push({ blockSize, success: false, error: error.message });
-      }
-    }
-    
-    res.json({ success: true, results });
-    
-  } catch (error) {
-    res.json({ success: false, error: error.message });
-  }
-};
-
-module.exports.testPadding = (req, res) => {
-  try {
-    const testData = "QkNURVdRbjB4a0RSTlA2bnNuWTdIekw5NHRIeDcxUDZSQjdGQ3Uydjlhc0VJK0RucGE2NmhTcjFJVnJ4YUxTWWNUNW4zVGxuUWgxcTJRQVlGbmVoL2g0RHhKenlrdVlkQjVoZkFkYTJwRzBlVE12OS9hNFpKeEY2Nm44TUZnOXlONTh2THlocy9kRUFSSjFFRjJxV1JGU1JVQ20vU0FHYXJzTzVESGE5VjdlcVhUUndiejQyWklUSG4zalFhTndlbFRNT2tpOEZNK2JFZFVoMHlENllyYzFYNTZaOUx5Z2tzTVJzeXFUZ0ZJcHZPOEg3ZmpVNmYybWpJMEhrSGNxOFA3bjFDNmk3aXdRdnh0RUk3TGFsZmVzWHlCa2NlTWJGT2xNKzNkWm9MV3pla2NrOGpoRzhzK2cvSXNSdWtKb21zYTV2bkZic0cwdnV2b0orQWF1RUlnPT0=";
-    
-    const NodeRSA = require('node-rsa');
-    const results = [];
-    const schemes = ['pkcs1', 'pkcs1_oaep', 'oaep'];
-    
-    for (const scheme of schemes) {
-      console.log(`\nTrying encryption scheme: ${scheme}`);
-      try {
-        const privateKey = new NodeRSA(process.env.MERCHANT_PRIVATE_KEY_PEM);
-        privateKey.setOptions({ encryptionScheme: scheme });
-        
-        const decrypted = privateKey.decrypt(testData, 'utf8');
-        console.log(`SUCCESS with ${scheme}:`, decrypted);
-        results.push({ scheme, success: true, result: decrypted });
-        
-      } catch (error) {
-        console.log(`FAILED with ${scheme}:`, error.message);
-        results.push({ scheme, success: false, error: error.message });
-      }
-    }
-    
-    res.json({ success: true, results });
-    
-  } catch (error) {
-    res.json({ success: false, error: error.message });
-  }
-};
-
-
-module.exports.testKeyPairValidity = (req, res) => {
-  try {
-    const NodeRSA = require('node-rsa');
-    
-    // Load your private key
-    const privateKey = new NodeRSA(process.env.MERCHANT_PRIVATE_KEY_PEM);
-    
-    // Extract corresponding public key
-    const publicKeyFromPrivate = privateKey.exportKey('public');
-    
-    // Test encrypt/decrypt cycle
-    const testMessage = "RESPONSE_CODE=0&RESPONSE_MESSAGE=Test&ORDER_REF_NUMBER=123";
-    
-    // Encrypt with public key
-    const encrypted = privateKey.encrypt(testMessage, 'base64');
-    
-    // Decrypt with private key
-    const decrypted = privateKey.decrypt(encrypted, 'utf8');
-    
-    const isValid = testMessage === decrypted;
-    
-    res.json({
-      success: true,
-      keyPairValid: isValid,
-      test: {
-        original: testMessage,
-        decrypted: decrypted,
-        match: isValid
-      },
-      publicKeyFromPrivate: publicKeyFromPrivate.substring(0, 100) + '...',
-      storedPublicKey: process.env.MERCHANT_PUBLIC_KEY_PEM?.substring(0, 100) + '...'
-    });
-    
-  } catch (error) {
-    res.json({ success: false, error: error.message });
-  }
-};
->>>>>>> aeb32ad345e32999e070ed5abdbdcc422586a051
