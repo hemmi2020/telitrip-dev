@@ -830,8 +830,8 @@ const buildHBLPayRequest = (paymentData, userId) => {
   const request = {
     "USER_ID": HBLPAY_USER_ID,
     "PASSWORD": HBLPAY_PASSWORD,
-    "RETURN_URL": `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/success`,
-    "CANCEL_URL": `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/cancel`,
+    "RETURN_URL": `${process.env.FRONTEND_URL || 'https://telitrip.onrender.com'}/payment/success`,
+    "CANCEL_URL": `${process.env.FRONTEND_URL || 'https://telitrip.onrender.com'}/payments/cancel`,
     "CHANNEL": HBL_CHANNEL,
     "TYPE_ID": HBL_TYPE_ID,
     "ORDER": {
@@ -839,7 +839,7 @@ const buildHBLPayRequest = (paymentData, userId) => {
       "SUBTOTAL": amount.toFixed(2),
       "OrderSummaryDescription": [
         {
-          "ITEM_NAME": "HOTEL BOOKING",
+          "ITEM_NAME": bookingData?.hotelName || "HOTEL BOOKING",
           "QUANTITY": "1",
           "UNIT_PRICE": amount.toFixed(2),
           "OLD_PRICE": null,
@@ -1789,3 +1789,118 @@ module.exports.testDecryption = asyncErrorHandler(async (req, res) => {
 
 
 
+<<<<<<< HEAD
+=======
+module.exports.testBlockSizes = (req, res) => {
+  try {
+    const testData = "QkNURVdRbjB4a0RSTlA2bnNuWTdIekw5NHRIeDcxUDZSQjdGQ3Uydjlhc0VJK0RucGE2NmhTcjFJVnJ4YUxTWWNUNW4zVGxuUWgxcTJRQVlGbmVoL2g0RHhKenlrdVlkQjVoZkFkYTJwRzBlVE12OS9hNFpKeEY2Nm44TUZnOXlONTh2THlocy9kRUFSSjFFRjJxV1JGU1JVQ20vU0FHYXJzTzVESGE5VjdlcVhUUndiejQyWklUSG4zalFhTndlbFRNT2tpOEZNK2JFZFVoMHlENllyYzFYNTZaOUx5Z2tzTVJzeXFUZ0ZJcHZPOEg3ZmpVNmYybWpJMEhrSGNxOFA3bjFDNmk3aXdRdnh0RUk3TGFsZmVzWHlCa2NlTWJGT2xNKzNkWm9MV3pla2NrOGpoRzhzK2cvSXNSdWtKb21zYTV2bkZic0cwdnV2b0orQWF1RUlnPT0=";
+    
+    const NodeRSA = require('node-rsa');
+    const privateKey = new NodeRSA(process.env.MERCHANT_PRIVATE_KEY_PEM);
+    privateKey.setOptions({ encryptionScheme: 'pkcs1' });
+    
+    const encryptedBuffer = Buffer.from(testData, 'base64');
+    console.log('Buffer length:', encryptedBuffer.length);
+    
+    const results = [];
+    const blockSizes = [256, 344, 512, 1024]; // Try different block sizes
+    
+    for (const blockSize of blockSizes) {
+      console.log(`\nTrying block size: ${blockSize}`);
+      try {
+        let decryptedData = '';
+        
+        for (let i = 0; i < encryptedBuffer.length; i += blockSize) {
+          const chunk = encryptedBuffer.slice(i, i + blockSize);
+          console.log(`Processing chunk: ${chunk.length} bytes`);
+          
+          const decryptedChunk = privateKey.decrypt(chunk, 'utf8');
+          decryptedData += decryptedChunk;
+        }
+        
+        console.log(`SUCCESS with block size ${blockSize}:`, decryptedData);
+        results.push({ blockSize, success: true, result: decryptedData });
+        
+      } catch (error) {
+        console.log(`FAILED with block size ${blockSize}:`, error.message);
+        results.push({ blockSize, success: false, error: error.message });
+      }
+    }
+    
+    res.json({ success: true, results });
+    
+  } catch (error) {
+    res.json({ success: false, error: error.message });
+  }
+};
+
+module.exports.testPadding = (req, res) => {
+  try {
+    const testData = "QkNURVdRbjB4a0RSTlA2bnNuWTdIekw5NHRIeDcxUDZSQjdGQ3Uydjlhc0VJK0RucGE2NmhTcjFJVnJ4YUxTWWNUNW4zVGxuUWgxcTJRQVlGbmVoL2g0RHhKenlrdVlkQjVoZkFkYTJwRzBlVE12OS9hNFpKeEY2Nm44TUZnOXlONTh2THlocy9kRUFSSjFFRjJxV1JGU1JVQ20vU0FHYXJzTzVESGE5VjdlcVhUUndiejQyWklUSG4zalFhTndlbFRNT2tpOEZNK2JFZFVoMHlENllyYzFYNTZaOUx5Z2tzTVJzeXFUZ0ZJcHZPOEg3ZmpVNmYybWpJMEhrSGNxOFA3bjFDNmk3aXdRdnh0RUk3TGFsZmVzWHlCa2NlTWJGT2xNKzNkWm9MV3pla2NrOGpoRzhzK2cvSXNSdWtKb21zYTV2bkZic0cwdnV2b0orQWF1RUlnPT0=";
+    
+    const NodeRSA = require('node-rsa');
+    const results = [];
+    const schemes = ['pkcs1', 'pkcs1_oaep', 'oaep'];
+    
+    for (const scheme of schemes) {
+      console.log(`\nTrying encryption scheme: ${scheme}`);
+      try {
+        const privateKey = new NodeRSA(process.env.MERCHANT_PRIVATE_KEY_PEM);
+        privateKey.setOptions({ encryptionScheme: scheme });
+        
+        const decrypted = privateKey.decrypt(testData, 'utf8');
+        console.log(`SUCCESS with ${scheme}:`, decrypted);
+        results.push({ scheme, success: true, result: decrypted });
+        
+      } catch (error) {
+        console.log(`FAILED with ${scheme}:`, error.message);
+        results.push({ scheme, success: false, error: error.message });
+      }
+    }
+    
+    res.json({ success: true, results });
+    
+  } catch (error) {
+    res.json({ success: false, error: error.message });
+  }
+};
+
+
+module.exports.testKeyPairValidity = (req, res) => {
+  try {
+    const NodeRSA = require('node-rsa');
+    
+    // Load your private key
+    const privateKey = new NodeRSA(process.env.MERCHANT_PRIVATE_KEY_PEM);
+    
+    // Extract corresponding public key
+    const publicKeyFromPrivate = privateKey.exportKey('public');
+    
+    // Test encrypt/decrypt cycle
+    const testMessage = "RESPONSE_CODE=0&RESPONSE_MESSAGE=Test&ORDER_REF_NUMBER=123";
+    
+    // Encrypt with public key
+    const encrypted = privateKey.encrypt(testMessage, 'base64');
+    
+    // Decrypt with private key
+    const decrypted = privateKey.decrypt(encrypted, 'utf8');
+    
+    const isValid = testMessage === decrypted;
+    
+    res.json({
+      success: true,
+      keyPairValid: isValid,
+      test: {
+        original: testMessage,
+        decrypted: decrypted,
+        match: isValid
+      },
+      publicKeyFromPrivate: publicKeyFromPrivate.substring(0, 100) + '...',
+      storedPublicKey: process.env.MERCHANT_PUBLIC_KEY_PEM?.substring(0, 100) + '...'
+    });
+    
+  } catch (error) {
+    res.json({ success: false, error: error.message });
+  }
+};
+>>>>>>> aeb32ad345e32999e070ed5abdbdcc422586a051

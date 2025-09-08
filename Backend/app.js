@@ -12,6 +12,7 @@ const helmet = require('helmet');
 const ApiResponse = require('./utils/response.util');
 const rateLimit = require('express-rate-limit');
 
+
   
 
 dotenv.config();   
@@ -20,6 +21,8 @@ const app = express();
 
 // Security middleware
 app.use(helmet());
+
+app.set('trust proxy', 1);
 
 // Rate limiting
 const limiter = rateLimit({
@@ -32,38 +35,42 @@ app.use(limiter);
 
 app.use(cookieParser());
 app.use(cors({
-    origin: function (origin, callback) {
-        const allowedOrigins = [
-            process.env.FRONTEND_URL,
-            'http://localhost:3000',
-            'http://localhost:5173',
-            'http://localhost:3001'
-        ];
-        
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
-    },
+    origin: [
+        process.env.FRONTEND_URL,
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'https://telitrip.onrender.com',
+        'https://telitrip-frontend.onrender.com'
+    ],
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
-    
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); 
 
 
+// Root route
 app.get('/', (req, res) => {
-    res.send('Hello World!');
-})
-// Health check route
+    res.json({ 
+        message: 'TeleTrip Backend API is running!',
+        status: 'OK',
+        timestamp: new Date().toISOString() 
+    });
+});
+// Fixed Health check route
 app.get('/health', (req, res) => {
+<<<<<<< HEAD
     return ApiResponse.success(res, { 
+=======
+    res.status(200).json({ 
+>>>>>>> aeb32ad345e32999e070ed5abdbdcc422586a051
         status: 'OK', 
+        message: 'Server is running',
         timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-    }, 'Server is running');
+        uptime: process.uptime(),
+        environment: process.env.NODE_ENV || 'development'
+    });
 });
 
 
