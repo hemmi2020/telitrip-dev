@@ -8,8 +8,8 @@ const ApiResponse = require('../utils/response.util');
 
 
 // ADD THIS LINE:
-router.get('/test-decrypt', authUser, paymentController.testDecryption);
-
+router.get('/extract-hbl-data', authUser, paymentController.extractHBLData);
+router.post('/test-decrypt',authUser, paymentController.testDecryption);
 
 
 
