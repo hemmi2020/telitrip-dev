@@ -7,9 +7,7 @@ const ApiResponse = require('../utils/response.util');
 
 
 
-// ADD THIS LINE:
-router.get('/extract-hbl-data', authUser, paymentController.extractHBLData);
-router.post('/test-decrypt',authUser, paymentController.testDecryption);
+
 
 
 
@@ -139,64 +137,64 @@ router.post('/hblpay/initiate',
 // router.post('/create', authUser, paymentController.createPayment);
 
 // Verify payment status
-router.get('/verify/:sessionId', 
-  validatePaymentVerification,
-  authUser, 
-  validateRequest, 
-  paymentController.verifyPayment
-);
+// router.get('/verify/:sessionId', 
+//   validatePaymentVerification,
+//   authUser, 
+//   validateRequest, 
+//   paymentController.verifyPayment
+// );
 
-router.get('/verify/payment/:paymentId', 
-  validatePaymentVerification,
-  authUser, 
-  validateRequest, 
-  paymentController.verifyPayment
-);
+// router.get('/verify/payment/:paymentId', 
+//   validatePaymentVerification,
+//   authUser, 
+//   validateRequest, 
+//   paymentController.verifyPayment
+// );
 
-// Get payment history
-router.get('/history', 
-  validatePaymentHistory,
-  authUser, 
-  validateRequest,
-  paymentController.getPaymentHistory
-);
+// // Get payment history
+// router.get('/history', 
+//   validatePaymentHistory,
+//   authUser, 
+//   validateRequest,
+//   paymentController.getPaymentHistory
+// );
 
-// Get payment details by payment ID
-router.get('/:paymentId', 
-  param('paymentId').matches(/^PAY_/).withMessage('Invalid payment ID format'),
-  authUser, 
-  validateRequest,
-  paymentController.getPaymentDetails
-);
+// // Get payment details by payment ID
+// router.get('/:paymentId', 
+//   param('paymentId').matches(/^PAY_/).withMessage('Invalid payment ID format'),
+//   authUser, 
+//   validateRequest,
+//   paymentController.getPaymentDetails
+// );
 
-// Process refund
-router.post('/:paymentId/refund', 
-  validateRefundRequest,
-  authUser, 
-  validateRequest, 
-  paymentController.processRefund
-);
+// // Process refund
+// router.post('/:paymentId/refund', 
+//   validateRefundRequest,
+//   authUser, 
+//   validateRequest, 
+//   paymentController.processRefund
+// );
 
-// Get payment statistics
-router.get('/stats/:period', 
-  param('period').optional().isIn(['7d', '30d', '90d', '1y']).withMessage('Invalid period'),
-  authUser,
-  validateRequest,
-  async (req, res) => {
-    const { period = '30d' } = req.params;
-    const userId = req.user._id;
+// // Get payment statistics
+// router.get('/stats/:period', 
+//   param('period').optional().isIn(['7d', '30d', '90d', '1y']).withMessage('Invalid period'),
+//   authUser,
+//   validateRequest,
+//   async (req, res) => {
+//     const { period = '30d' } = req.params;
+//     const userId = req.user._id;
     
-    try {
-      const paymentService = require('../services/payment.service');
-      const stats = await paymentService.getPaymentStats(userId, period);
+//     try {
+//       const paymentService = require('../services/payment.service');
+//       const stats = await paymentService.getPaymentStats(userId, period);
       
-      return ApiResponse.success(res, stats, 'Payment statistics retrieved');
-    } catch (error) {
-      console.error('Payment stats error:', error);
-      return ApiResponse.error(res, error.message, 500);
-    }
-  }
-);
+//       return ApiResponse.success(res, stats, 'Payment statistics retrieved');
+//     } catch (error) {
+//       console.error('Payment stats error:', error);
+//       return ApiResponse.error(res, error.message, 500);
+//     }
+//   }
+// );
 
 
 
@@ -215,38 +213,38 @@ router.get('/stats/:period',
 // ==================== PUBLIC ROUTES (No Authentication Required) ====================
 
 // HBLPay return callback (GET) - Called by HBLPay after payment
-router.get('/return', paymentController.handlePaymentReturn);
+// router.get('/return', paymentController.handlePaymentReturn);
 
-// HBLPay return callback (POST) - Some gateways use POST
-router.post('/return', paymentController.handlePaymentReturn);
+// // HBLPay return callback (POST) - Some gateways use POST
+// router.post('/return', paymentController.handlePaymentReturn);
 
-// HBLPay callback with query parameters
-router.get('/callback', paymentController.handlePaymentReturn);
+// // HBLPay callback with query parameters
+// router.get('/callback', paymentController.handlePaymentReturn);
 
-// HBLPay callback with POST data
-router.post('/callback', paymentController.handlePaymentReturn);
+// // HBLPay callback with POST data
+// router.post('/callback', paymentController.handlePaymentReturn);
 
-// 🚨 CRITICAL: HBLPay Cancel Routes (NEW)
+// // 🚨 CRITICAL: HBLPay Cancel Routes (NEW)
 router.get('/cancel', paymentController.handlePaymentCancel);
-router.post('/cancel', paymentController.handlePaymentCancel);
+router.post('/cancel', paymentController.handlePaymentCancel); 
 
 
-// Add this to your PUBLIC ROUTES section
+// // Add this to your PUBLIC ROUTES section
 router.get('/success', paymentController.handlePaymentSuccess);
 router.post('/success', paymentController.handlePaymentSuccess);
 
 
 
 
-// Alternative cancel route for direct frontend access
-router.get('/cancelled', paymentController.handlePaymentCancel);
+// // Alternative cancel route for direct frontend access
+// router.get('/cancelled', paymentController.handlePaymentCancel);
 
 
-// Webhook route for HBLPay notifications
-router.post('/webhook', paymentController.handleWebhook);
+// // Webhook route for HBLPay notifications
+// router.post('/webhook', paymentController.handleWebhook);
 
-// Health check route for payment gateway
-router.get('/health', paymentController.healthCheck); 
+// // Health check route for payment gateway
+// router.get('/health', paymentController.healthCheck); 
 
 // ==================== DEVELOPMENT/TEST ROUTES ====================
 

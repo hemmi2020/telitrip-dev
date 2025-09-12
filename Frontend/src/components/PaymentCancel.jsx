@@ -1,359 +1,358 @@
-// Frontend/src/components/PaymentCancel.jsx
+// PaymentCancel.jsx - For Handling Cancelled Payments
 import React, { useEffect, useState, useContext } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { UserDataContext, useCart } from './CartSystem';
+import { UserDataContext } from './CartSystem';
 import Header from './Header';
 import Footer from './Footer';
 import {
   XCircle,
   Home,
-  RotateCcw,
-  CreditCard,
-  Phone,
-  Mail,
-  Clock,
-  AlertTriangle,
   ArrowLeft,
-  ShoppingCart
+  RefreshCw,
+  AlertTriangle,
+  Copy,
+  ExternalLink
 } from 'lucide-react';
 
 const PaymentCancel = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user } = useContext(UserDataContext);
-  const { items: cartItems, getTotalPrice, clearCart } = useCart();
   
   const [cancelDetails, setCancelDetails] = useState({
-    orderId: null,
-    paymentId: null,
-    bookingId: null,
-    amount: null,
-    currency: 'PKR',
+    status: null,
+    code: null,
+    message: null,
+    ref: null,
     reason: null,
-    timestamp: null,
-    error: null
+    timestamp: null
   });
 
   const [isLoading, setIsLoading] = useState(true);
-  const [showDetails, setShowDetails] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    // Extract cancellation details from URL parameters
-    const details = {
-      orderId: searchParams.get('orderId'),
-      paymentId: searchParams.get('paymentId'),
-      bookingId: searchParams.get('bookingId'),
-      amount: searchParams.get('amount'),
-      currency: searchParams.get('currency') || 'PKR',
+    console.log('\n🚫 ========== PAYMENT CANCEL PAGE LOADED ==========');
+    console.log('📋 Current URL:', window.location.href);
+    console.log('📋 Search params:', window.location.search);
+    
+    // Extract cancellation parameters
+    const extractedDetails = {
+      status: searchParams.get('status') || 'cancelled',
+      code: searchParams.get('code'),
+      message: searchParams.get('message'),
+      ref: searchParams.get('ref'),
       reason: searchParams.get('reason'),
-      timestamp: searchParams.get('timestamp'),
-      error: searchParams.get('error')
+      timestamp: searchParams.get('timestamp') || new Date().toISOString()
     };
 
-    setCancelDetails(details);
+    console.log('🚫 Payment Cancel Details:', extractedDetails);
+    
+    setCancelDetails(extractedDetails);
     setIsLoading(false);
 
-    // Log cancellation event
-    console.log('🚫 Payment Cancellation Details:', details);
-
-    // Optional: Clear sensitive data from URL
+    // Clean URL after extracting data
     if (window.history.replaceState) {
       window.history.replaceState({}, document.title, '/payment/cancel');
     }
   }, [searchParams]);
 
-  const formatAmount = (amount, currency) => {
-    if (!amount || isNaN(amount)) return 'N/A';
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: currency || 'PKR',
-      minimumFractionDigits: 2
-    }).format(parseFloat(amount));
+  const copyToClipboard = async (text, label) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      console.log(`✅ Copied ${label} to clipboard:`, text);
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error);
+    }
   };
 
-  const getCancelReason = (reason, error) => {
-    if (error) {
-      switch (error) {
-        case 'missing_data':
-          return 'Invalid payment session data';
-        case 'decrypt_failed':
-          return 'Payment verification failed';
-        case 'processing_error':
-          return 'Technical error during processing';
-        default:
-          return 'Unknown error occurred';
-      }
-    }
-
-    switch (reason) {
-      case 'user_cancelled':
-        return 'You cancelled the payment';
-      case 'timeout':
-        return 'Payment session expired';
-      case 'bank_declined':
-        return 'Bank declined the transaction';
-      default:
-        return 'Payment was cancelled';
+  const formatDateTime = (timestamp) => {
+    if (!timestamp) return 'N/A';
+    
+    try {
+      const date = new Date(parseInt(timestamp) || timestamp);
+      return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      console.warn('Date formatting error:', error);
+      return 'N/A';
     }
   };
 
   const handleRetryPayment = () => {
-    if (cartItems && cartItems.length > 0) {
-      // If cart still has items, go back to checkout
-      navigate('/checkout', {
-        state: {
-          cartItems: cartItems,
-          totalAmount: getTotalPrice(),
-          retryPayment: true,
-          previousOrderId: cancelDetails.orderId
-        }
-      });
-    } else if (cancelDetails.bookingId) {
-      // If no cart but has booking, redirect to booking payment
-      navigate(`/booking/${cancelDetails.bookingId}/payment`);
-    } else {
-      // Otherwise go to account to view bookings
-      navigate('/account');
-    }
+    // Navigate back to checkout or cart
+    navigate('/checkout');
   };
 
-  const handleContactSupport = () => {
-    const subject = `Payment Cancellation Support - Order ${cancelDetails.orderId}`;
-    const body = `Hello,\n\nI need assistance with a cancelled payment:\n\nOrder ID: ${cancelDetails.orderId}\nPayment ID: ${cancelDetails.paymentId}\nAmount: ${formatAmount(cancelDetails.amount, cancelDetails.currency)}\nCancellation Time: ${cancelDetails.timestamp}\nReason: ${getCancelReason(cancelDetails.reason, cancelDetails.error)}\n\nPlease help me resolve this issue.\n\nThank you!`;
+  const handleGoHome = () => {
+    navigate('/home');
+  };
+
+  const handleGoToCart = () => {
+    navigate('/cart');
+  };
+
+  const getReasonMessage = (reason, code, message) => {
+    // Handle different cancellation reasons
+    const reasonMap = {
+      'user_cancelled': 'You cancelled the payment process.',
+      'session_expired': 'The payment session expired. Please try again.',
+      'network_error': 'A network error occurred during payment.',
+      'bank_declined': 'The payment was declined by your bank.',
+      'insufficient_funds': 'Insufficient funds in your account.',
+      'card_expired': 'Your card has expired.',
+      'invalid_card': 'Invalid card details provided.',
+      'technical_error': 'A technical error occurred. Please try again.',
+      'timeout': 'The payment request timed out.',
+      'server_error': 'A server error occurred. Please try again later.',
+      'missing_data': 'Required payment information was missing.',
+      'decrypt_failed': 'Payment verification failed.',
+      'config_error': 'Payment system configuration error.'
+    };
+
+    if (reason && reasonMap[reason]) {
+      return reasonMap[reason];
+    }
+
+    if (message) {
+      return decodeURIComponent(message);
+    }
+
+    if (code) {
+      return `Payment cancelled with code: ${code}`;
+    }
+
+    return 'The payment was cancelled.';
+  };
+
+  const getSuggestions = (reason) => {
+    const suggestions = [];
     
-    const supportEmail = import.meta.env.VITE_SUPPORT_EMAIL || 'support@telitrip.com';
-    window.open(`mailto:${supportEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
+    if (reason === 'user_cancelled') {
+      suggestions.push('You can continue shopping or try payment again.');
+      suggestions.push('Your items are still in your cart.');
+    } else if (reason === 'session_expired' || reason === 'timeout') {
+      suggestions.push('Please try the payment again.');
+      suggestions.push('Make sure you complete the payment within the time limit.');
+    } else if (reason === 'network_error' || reason === 'server_error') {
+      suggestions.push('Check your internet connection and try again.');
+      suggestions.push('If the problem persists, please contact support.');
+    } else if (reason === 'insufficient_funds' || reason === 'bank_declined') {
+      suggestions.push('Check your account balance or try a different payment method.');
+      suggestions.push('Contact your bank if you believe this is an error.');
+    } else if (reason === 'card_expired' || reason === 'invalid_card') {
+      suggestions.push('Please check your card details and try again.');
+      suggestions.push('Make sure your card is valid and not expired.');
+    } else {
+      suggestions.push('Please try the payment again.');
+      suggestions.push('If the issue continues, contact our support team.');
+    }
+
+    return suggestions;
   };
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <Header />
-        <div className="flex items-center justify-center min-h-screen">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Processing cancellation...</p>
-          </div>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Processing cancellation...</p>
         </div>
-        <Footer />
       </div>
     );
   }
+
+  const reasonMessage = getReasonMessage(cancelDetails.reason, cancelDetails.code, cancelDetails.message);
+  const suggestions = getSuggestions(cancelDetails.reason);
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
       
-      <div className="pt-20 pb-12">
-        <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
-          
-          {/* Main Cancel Message */}
-          <div className="bg-white rounded-lg shadow-sm p-8 text-center mb-6">
-            <div className="mb-6">
-              <XCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-              <h1 className="text-3xl font-bold text-gray-900 mb-2">Payment Cancelled</h1>
-              <p className="text-lg text-gray-600">
-                {getCancelReason(cancelDetails.reason, cancelDetails.error)}
-              </p>
-            </div>
-
-            {/* Cancellation Details */}
-            {(cancelDetails.orderId || cancelDetails.amount) && (
-              <div className="bg-gray-50 rounded-lg p-6 mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Cancellation Details</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
-                  {cancelDetails.orderId && (
-                    <div>
-                      <span className="block text-sm font-medium text-gray-500">Order ID</span>
-                      <span className="text-gray-900">{cancelDetails.orderId}</span>
-                    </div>
-                  )}
-                  {cancelDetails.amount && (
-                    <div>
-                      <span className="block text-sm font-medium text-gray-500">Amount</span>
-                      <span className="text-gray-900 font-semibold">
-                        {formatAmount(cancelDetails.amount, cancelDetails.currency)}
-                      </span>
-                    </div>
-                  )}
-                  {cancelDetails.paymentId && (
-                    <div>
-                      <span className="block text-sm font-medium text-gray-500">Payment ID</span>
-                      <span className="text-gray-900">{cancelDetails.paymentId}</span>
-                    </div>
-                  )}
-                  {cancelDetails.timestamp && (
-                    <div>
-                      <span className="block text-sm font-medium text-gray-500">Cancelled At</span>
-                      <span className="text-gray-900">
-                        {new Date(cancelDetails.timestamp).toLocaleString()}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Action Buttons */}
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <button
-                onClick={handleRetryPayment}
-                className="flex items-center justify-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                <RotateCcw className="w-4 h-4 mr-2" />
-                Try Payment Again
-              </button>
-              
-              <button
-                onClick={() => navigate('/home')}
-                className="flex items-center justify-center px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-              >
-                <Home className="w-4 h-4 mr-2" />
-                Return to Home
-              </button>
-            </div>
+      <div className="container mx-auto px-4 py-8 pt-24">
+        {/* Cancel Header */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mb-4">
+            <XCircle className="w-8 h-8 text-red-600" />
           </div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            Payment Cancelled
+          </h1>
+          <p className="text-lg text-gray-600">
+            Your payment was not completed
+          </p>
+        </div>
 
-          {/* Additional Information */}
-          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-              <AlertTriangle className="w-5 h-5 text-yellow-500 mr-2" />
-              What Happened?
-            </h3>
-            
-            <div className="space-y-4 text-gray-700">
-              <p>
-                Your payment was cancelled before completion. This can happen if:
-              </p>
-              <ul className="list-disc list-inside space-y-2 ml-4">
-                <li>You clicked the cancel button on the payment page</li>
-                <li>You closed the browser window during payment</li>
-                <li>The payment session expired</li>
-                <li>There was a network connection issue</li>
-              </ul>
-              
-              <div className="bg-blue-50 border-l-4 border-blue-400 p-4 mt-6">
-                <div className="flex items-center">
-                  <Clock className="w-5 h-5 text-blue-400 mr-2" />
-                  <p className="text-blue-700">
-                    <strong>No charges applied:</strong> Since the payment was cancelled, 
-                    no amount has been charged to your account.
+        {/* Cancel Details Card */}
+        <div className="bg-white rounded-lg shadow-lg overflow-hidden mb-6 max-w-2xl mx-auto">
+          <div className="bg-red-600 px-6 py-4">
+            <h2 className="text-xl font-semibold text-white">
+              Cancellation Details
+            </h2>
+          </div>
+          
+          <div className="p-6">
+            {/* Reason */}
+            <div className="mb-6">
+              <div className="flex items-start space-x-3">
+                <AlertTriangle className="w-5 h-5 text-red-500 mt-1 flex-shrink-0" />
+                <div className="flex-1">
+                  <h3 className="font-semibold text-gray-900 mb-2">
+                    What happened?
+                  </h3>
+                  <p className="text-gray-700">
+                    {reasonMessage}
                   </p>
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Support Information */}
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Need Help?</h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <button
-                onClick={handleContactSupport}
-                className="flex items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                <Mail className="w-5 h-5 text-gray-500 mr-3" />
-                <div className="text-left">
-                  <div className="font-medium text-gray-900">Email Support</div>
-                  <div className="text-sm text-gray-500">Get help via email</div>
-                </div>
-              </button>
-
-              <a
-                href={`tel:${import.meta.env.VITE_SUPPORT_PHONE || '+92-300-1234567'}`}
-                className="flex items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                <Phone className="w-5 h-5 text-gray-500 mr-3" />
-                <div className="text-left">
-                  <div className="font-medium text-gray-900">Call Support</div>
-                  <div className="text-sm text-gray-500">Speak with our team</div>
-                </div>
-              </a>
-
-              <button
-                onClick={() => setShowDetails(!showDetails)}
-                className="flex items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                <CreditCard className="w-5 h-5 text-gray-500 mr-3" />
-                <div className="text-left">
-                  <div className="font-medium text-gray-900">Payment Info</div>
-                  <div className="text-sm text-gray-500">View technical details</div>
-                </div>
-              </button>
-            </div>
-
-            {/* Technical Details (Collapsible) */}
-            {showDetails && (
-              <div className="mt-6 bg-gray-50 rounded-lg p-4">
-                <h4 className="font-semibold text-gray-900 mb-3">Technical Details</h4>
-                <div className="text-sm text-gray-700 space-y-2">
-                  <p><strong>Session:</strong> {cancelDetails.sessionId || 'Not available'}</p>
-                  <p><strong>Gateway:</strong> HBLPay</p>
-                  <p><strong>Environment:</strong> {import.meta.env.MODE || 'Development'}</p>
-                  <p><strong>Browser:</strong> {navigator.userAgent.split(' ')[0]}</p>
-                  <p><strong>Timestamp:</strong> {cancelDetails.timestamp || new Date().toISOString()}</p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Cart Recovery (if items still in cart) */}
-          {cartItems && cartItems.length > 0 && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mt-6">
-              <div className="flex items-center mb-4">
-                <ShoppingCart className="w-5 h-5 text-yellow-600 mr-2" />
-                <h3 className="text-lg font-semibold text-yellow-800">Your Cart Items Are Safe</h3>
-              </div>
-              <p className="text-yellow-700 mb-4">
-                You have {cartItems.length} item(s) in your cart worth {formatAmount(getTotalPrice(), 'PKR')}. 
-                Your selections have been preserved.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={handleRetryPayment}
-                  className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
-                >
-                  Complete Your Booking
-                </button>
-                <button
-                  onClick={() => {
-                    clearCart();
-                    navigate('/home');
-                  }}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-                >
-                  Clear Cart & Browse
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Quick Actions */}
-          <div className="mt-8 text-center">
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <button
-                onClick={() => navigate('/home')}
-                className="flex items-center justify-center px-6 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back to Home
-              </button>
+            {/* Transaction Info */}
+            <div className="space-y-3 border-t pt-4">
+              <h3 className="font-semibold text-gray-900 mb-3">
+                Transaction Information
+              </h3>
               
-              {user?.email && (
-                <button
-                  onClick={() => navigate('/account')}
-                  className="flex items-center justify-center px-6 py-2 text-blue-600 border border-blue-300 rounded-lg hover:bg-blue-50 transition-colors"
-                >
-                  View My Account
-                </button>
+              {cancelDetails.ref && (
+                <div className="flex justify-between items-center py-2">
+                  <span className="text-gray-600">Reference Number</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-gray-900 font-mono text-sm">
+                      {cancelDetails.ref}
+                    </span>
+                    <button
+                      onClick={() => copyToClipboard(cancelDetails.ref, 'Reference Number')}
+                      className="p-1 hover:bg-gray-100 rounded"
+                      title="Copy Reference Number"
+                    >
+                      <Copy className="w-3 h-3 text-gray-400" />
+                    </button>
+                  </div>
+                </div>
               )}
+              
+              {cancelDetails.code && (
+                <div className="flex justify-between items-center py-2">
+                  <span className="text-gray-600">Error Code</span>
+                  <span className="font-medium text-gray-900 font-mono text-sm">
+                    {cancelDetails.code}
+                  </span>
+                </div>
+              )}
+              
+              <div className="flex justify-between items-center py-2">
+                <span className="text-gray-600">Status</span>
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                  <XCircle className="w-3 h-3 mr-1" />
+                  Cancelled
+                </span>
+              </div>
+              
+              <div className="flex justify-between items-center py-2">
+                <span className="text-gray-600">Date & Time</span>
+                <span className="font-medium text-gray-900">
+                  {formatDateTime(cancelDetails.timestamp)}
+                </span>
+              </div>
             </div>
           </div>
-
         </div>
+
+        {/* What to do next */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8 max-w-2xl mx-auto">
+          <h3 className="text-lg font-semibold text-blue-900 mb-3">
+            What can you do next?
+          </h3>
+          <ul className="space-y-2 text-blue-800">
+            {suggestions.map((suggestion, index) => (
+              <li key={index} className="flex items-start">
+                <div className="w-1.5 h-1.5 bg-blue-600 rounded-full mt-2 mr-3 flex-shrink-0"></div>
+                <span>{suggestion}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Copy Success Notification */}
+        {copied && (
+          <div className="fixed bottom-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg">
+            ✅ Copied to clipboard!
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        <div className="flex flex-col sm:flex-row gap-4 justify-center max-w-2xl mx-auto">
+          <button
+            onClick={handleRetryPayment}
+            className="inline-flex items-center justify-center px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <RefreshCw className="w-5 h-5 mr-2" />
+            Try Payment Again
+          </button>
+          
+          <button
+            onClick={handleGoToCart}
+            className="inline-flex items-center justify-center px-8 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+          >
+            <ArrowLeft className="w-5 h-5 mr-2" />
+            Back to Cart
+          </button>
+          
+          <button
+            onClick={handleGoHome}
+            className="inline-flex items-center justify-center px-8 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+          >
+            <Home className="w-5 h-5 mr-2" />
+            Return Home
+          </button>
+        </div>
+
+        {/* Support Information */}
+        <div className="mt-8 text-center max-w-2xl mx-auto">
+          <p className="text-gray-600 mb-4">
+            Need help? Our support team is here to assist you.
+          </p>
+          <div className="flex justify-center gap-4">
+            <a
+              href="mailto:support@telitrip.com"
+              className="inline-flex items-center text-blue-600 hover:text-blue-700"
+            >
+              <ExternalLink className="w-4 h-4 mr-1" />
+              Email Support
+            </a>
+            <span className="text-gray-400">|</span>
+            <a
+              href="tel:+923001234567"
+              className="inline-flex items-center text-blue-600 hover:text-blue-700"
+            >
+              <ExternalLink className="w-4 h-4 mr-1" />
+              Call Support
+            </a>
+          </div>
+        </div>
+
+        {/* Debug Information (only in development) */}
+        {import.meta.env.MODE === 'development' && (
+          <div className="mt-8 bg-gray-100 border rounded-lg p-4 max-w-2xl mx-auto">
+            <details>
+              <summary className="cursor-pointer font-medium text-gray-700 mb-2">
+                🔧 Debug Information (Development Only)
+              </summary>
+              <pre className="text-xs text-gray-600 overflow-x-auto bg-white p-3 rounded border">
+                {JSON.stringify(cancelDetails, null, 2)}
+              </pre>
+            </details>
+          </div>
+        )}
       </div>
-      
+
       <Footer />
     </div>
   );
