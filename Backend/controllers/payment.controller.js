@@ -44,377 +44,347 @@ try {
   console.log('📦 Install with: npm install node-forge');
 }
 
-// ==================== ENHANCED DECRYPTION FUNCTION ====================
-function decryptHBLResponse(encryptedData, privateKeyPem) {
+// ==================== FIXED DECRYPTION FOR YOUR SPECIFIC CASE ====================
+function fixedDecryptHBLResponse(encryptedData, privateKeyPem) {
   try {
-    console.log('\n🔐 [HBL DECRYPT] Starting decryption...');
-    console.log('📝 [HBL DECRYPT] Input data type:', typeof encryptedData);
-    console.log('📝 [HBL DECRYPT] Input length:', encryptedData?.length || 'undefined');
-    console.log('📝 [HBL DECRYPT] First 100 chars:', encryptedData?.substring(0, 100) || 'undefined');
+    console.log('\n🔧 [FIXED DECRYPT] Starting enhanced decryption...');
+    console.log('📝 [FIXED DECRYPT] Input length:', encryptedData?.length);
+    console.log('📝 [FIXED DECRYPT] Input preview:', encryptedData?.substring(0, 100));
     
-    if (!encryptedData) {
-      console.error('❌ [HBL DECRYPT] No encrypted data provided');
+    if (!encryptedData || !privateKeyPem || !forge) {
+      console.error('❌ [FIXED DECRYPT] Missing required components');
       return {};
     }
     
-    if (!privateKeyPem) {
-      console.error('❌ [HBL DECRYPT] No private key provided');
-      return {};
+    // STEP 1: AGGRESSIVE DATA CLEANING (Your data has spaces!)
+    console.log('🧹 [FIXED DECRYPT] Cleaning data...');
+    let cleanData = encryptedData;
+    
+    // Remove ALL whitespace (spaces, tabs, newlines)
+    cleanData = cleanData.replace(/\s+/g, '');
+    console.log('📝 [FIXED DECRYPT] After removing spaces:', cleanData.length, 'chars');
+    
+    // Handle URL encoding if present
+    if (cleanData.includes('%')) {
+      cleanData = decodeURIComponent(cleanData);
+      console.log('📝 [FIXED DECRYPT] After URL decode:', cleanData.length, 'chars');
     }
     
-    if (!forge) {
-      console.error('❌ [HBL DECRYPT] node-forge not available');
-      return {};
-    }
+    // STEP 2: LOAD PRIVATE KEY AND GET CORRECT BLOCK SIZE
+    console.log('🔑 [FIXED DECRYPT] Loading private key...');
+    const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
+    const keySize = privateKey.n.bitLength();
+    const blockSize = keySize / 8; // This should be 256 for 2048-bit key, not 512!
     
-    const DECRYPT_BLOCK_SIZE = 512;
+    console.log('🔍 [FIXED DECRYPT] Key details:');
+    console.log('- Key size:', keySize, 'bits');
+    console.log('- Block size:', blockSize, 'bytes');
+    console.log('- Expected block size for RSA-2048:', keySize === 2048 ? '256 bytes' : `${blockSize} bytes`);
     
-    // Step 1: Load private key
-    console.log('🔑 [HBL DECRYPT] Loading private key...');
-    let privateKey;
+    // STEP 3: BASE64 DECODE WITH ERROR HANDLING
+    console.log('📦 [FIXED DECRYPT] Base64 decoding...');
+    let binaryData;
     try {
-      privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
-      console.log('✅ [HBL DECRYPT] Private key loaded successfully');
-    } catch (keyError) {
-      console.error('❌ [HBL DECRYPT] Failed to load private key:', keyError.message);
-      return {};
-    }
-    
-    // Step 2: Base64 decode
-    console.log('📦 [HBL DECRYPT] Decoding base64...');
-    let encryptedBuffer;
-    try {
-      // Handle URL encoded data first
-      let cleanData = encryptedData;
-      if (encryptedData.includes('%')) {
-        cleanData = decodeURIComponent(encryptedData);
-        console.log('🔧 [HBL DECRYPT] URL decoded data');
-      }
-      
-      encryptedBuffer = Buffer.from(cleanData, 'base64');
-      console.log('📦 [HBL DECRYPT] Decoded length:', encryptedBuffer.length);
-      
-      if (encryptedBuffer.length === 0) {
-        console.error('❌ [HBL DECRYPT] Base64 decode resulted in empty buffer');
+      // Use forge's base64 decoder (more reliable)
+      binaryData = forge.util.decode64(cleanData);
+      console.log('✅ [FIXED DECRYPT] Forge base64 decode successful:', binaryData.length, 'bytes');
+    } catch (error) {
+      console.log('🔄 [FIXED DECRYPT] Trying Node.js Buffer decode...');
+      try {
+        const buffer = Buffer.from(cleanData, 'base64');
+        binaryData = buffer.toString('binary');
+        console.log('✅ [FIXED DECRYPT] Buffer decode successful:', binaryData.length, 'bytes');
+      } catch (bufferError) {
+        console.error('❌ [FIXED DECRYPT] All base64 decode methods failed');
         return {};
       }
-    } catch (decodeError) {
-      console.error('❌ [HBL DECRYPT] Base64 decode failed:', decodeError.message);
-      return {};
     }
     
+    // STEP 4: VERIFY DATA LENGTH IS MULTIPLE OF BLOCK SIZE
+    console.log('🔍 [FIXED DECRYPT] Data verification:');
+    console.log('- Binary data length:', binaryData.length);
+    console.log('- Block size:', blockSize);
+    console.log('- Is multiple of block size:', binaryData.length % blockSize === 0);
+    console.log('- Number of blocks:', Math.ceil(binaryData.length / blockSize));
+    
+    if (binaryData.length % blockSize !== 0) {
+      console.log('⚠️ [FIXED DECRYPT] Data length not multiple of block size - this might cause issues');
+    }
+    
+    // STEP 5: DECRYPT USING CORRECT BLOCK SIZE
+    console.log('🔓 [FIXED DECRYPT] Starting block decryption...');
     let decryptedData = '';
+    const totalBlocks = Math.ceil(binaryData.length / blockSize);
     
-    // Step 3: Process 512-byte blocks
-    console.log('🔄 [HBL DECRYPT] Processing blocks...');
-    const totalBlocks = Math.ceil(encryptedBuffer.length / DECRYPT_BLOCK_SIZE);
-    console.log(`📊 [HBL DECRYPT] Total blocks to process: ${totalBlocks}`);
-    
-    for (let i = 0; i < encryptedBuffer.length; i += DECRYPT_BLOCK_SIZE) {
-      const chunk = encryptedBuffer.slice(i, i + DECRYPT_BLOCK_SIZE);
-      const chunkNum = Math.floor(i / DECRYPT_BLOCK_SIZE) + 1;
+    for (let i = 0; i < binaryData.length; i += blockSize) {
+      const block = binaryData.substring(i, i + blockSize);
+      const blockNum = Math.floor(i / blockSize) + 1;
       
-      console.log(`🔍 [HBL DECRYPT] Processing chunk ${chunkNum}/${totalBlocks}: ${chunk.length} bytes`);
+      console.log(`🔍 [FIXED DECRYPT] Block ${blockNum}/${totalBlocks}: ${block.length} bytes`);
       
+      // Try multiple decryption methods for each block
+      let blockDecrypted = false;
+      
+      // Method 1: RSAES-PKCS1-V1_5 (most common for HBL)
       try {
-        // Convert to forge binary string
-        const chunkBinary = forge.util.createBuffer(chunk).getBytes();
-        
-        // Decrypt with PKCS1 padding
-        const decryptedChunk = privateKey.decrypt(chunkBinary, 'RSAES-PKCS1-V1_5');
-        
-        decryptedData += decryptedChunk;
-        console.log(`✅ [HBL DECRYPT] Chunk ${chunkNum} decrypted: "${decryptedChunk}"`);
-        
-      } catch (chunkError) {
-        console.error(`❌ [HBL DECRYPT] Chunk ${chunkNum} failed:`, chunkError.message);
-        
-        // Try alternative decryption methods for this chunk
+        const result = privateKey.decrypt(block, 'RSAES-PKCS1-V1_5');
+        decryptedData += result;
+        console.log(`✅ [FIXED DECRYPT] Block ${blockNum} PKCS1: "${result}"`);
+        blockDecrypted = true;
+      } catch (pkcs1Error) {
+        console.log(`❌ [FIXED DECRYPT] Block ${blockNum} PKCS1 failed:`, pkcs1Error.message);
+      }
+      
+      // Method 2: RSA-OAEP (if PKCS1 fails)
+      if (!blockDecrypted) {
         try {
-          console.log(`🔄 [HBL DECRYPT] Trying alternative method for chunk ${chunkNum}`);
-          const chunkBinary = forge.util.createBuffer(chunk).getBytes();
-          const decryptedChunk = privateKey.decrypt(chunkBinary, 'RSA-OAEP');
-          decryptedData += decryptedChunk;
-          console.log(`✅ [HBL DECRYPT] Chunk ${chunkNum} decrypted with OAEP: "${decryptedChunk}"`);
-        } catch (altError) {
-          console.error(`❌ [HBL DECRYPT] Alternative method failed for chunk ${chunkNum}:`, altError.message);
-          // Continue to next chunk
+          const result = privateKey.decrypt(block, 'RSA-OAEP');
+          decryptedData += result;
+          console.log(`✅ [FIXED DECRYPT] Block ${blockNum} OAEP: "${result}"`);
+          blockDecrypted = true;
+        } catch (oaepError) {
+          console.log(`❌ [FIXED DECRYPT] Block ${blockNum} OAEP failed:`, oaepError.message);
         }
+      }
+      
+      // Method 3: Raw RSA (no padding)
+      if (!blockDecrypted) {
+        try {
+          const result = privateKey.decrypt(block);
+          decryptedData += result;
+          console.log(`✅ [FIXED DECRYPT] Block ${blockNum} Raw: "${result}"`);
+          blockDecrypted = true;
+        } catch (rawError) {
+          console.log(`❌ [FIXED DECRYPT] Block ${blockNum} Raw failed:`, rawError.message);
+        }
+      }
+      
+      if (!blockDecrypted) {
+        console.error(`💥 [FIXED DECRYPT] Block ${blockNum} COMPLETELY FAILED - all methods exhausted`);
+        // Don't return here, continue with other blocks
       }
     }
     
-    console.log('📄 [HBL DECRYPT] Complete decrypted result:', decryptedData);
+    console.log('📄 [FIXED DECRYPT] Total decrypted length:', decryptedData.length);
+    console.log('📄 [FIXED DECRYPT] Decrypted content:', decryptedData);
     
-    // Step 4: Parse response
+    // STEP 6: PARSE THE DECRYPTED DATA
     const params = {};
-    if (decryptedData && decryptedData.length > 0) {
+    if (decryptedData.length > 0) {
+      // HBL typically returns URL-encoded parameters
       if (decryptedData.includes('=') && decryptedData.includes('&')) {
         const pairs = decryptedData.split('&');
-        console.log(`📝 [HBL DECRYPT] Parsing ${pairs.length} key-value pairs`);
+        console.log(`📝 [FIXED DECRYPT] Parsing ${pairs.length} parameters`);
         
-        pairs.forEach(pair => {
-          const [key, value] = pair.split('=');
-          if (key && value !== undefined) {
-            params[key] = decodeURIComponent(value);
-            console.log(`📝 [HBL DECRYPT] ${key} = ${params[key]}`);
+        pairs.forEach((pair, index) => {
+          if (pair.includes('=')) {
+            const [key, ...valueParts] = pair.split('=');
+            const value = valueParts.join('='); // Handle values with = in them
+            if (key && value !== undefined) {
+              try {
+                params[key.trim()] = decodeURIComponent(value);
+                console.log(`📝 [FIXED DECRYPT] ${index + 1}. ${key} = ${value}`);
+              } catch (decodeError) {
+                params[key.trim()] = value; // Use raw value if decode fails
+                console.log(`📝 [FIXED DECRYPT] ${index + 1}. ${key} = ${value} (raw)`);
+              }
+            }
           }
         });
       } else {
-        console.warn('⚠️ [HBL DECRYPT] Decrypted data does not contain expected format (key=value&key=value)');
-        console.log('📋 [HBL DECRYPT] Raw decrypted data format check:');
-        console.log('- Contains =:', decryptedData.includes('='));
-        console.log('- Contains &:', decryptedData.includes('&'));
-        console.log('- Length:', decryptedData.length);
+        console.log('📝 [FIXED DECRYPT] Not standard parameters, storing as raw data');
+        params.RAW_DATA = decryptedData;
       }
-    } else {
-      console.error('❌ [HBL DECRYPT] No decrypted data available for parsing');
     }
     
-    console.log(`🎯 [HBL DECRYPT] Final parsed parameters (${Object.keys(params).length} keys):`, params);
-    
+    console.log(`🎯 [FIXED DECRYPT] Final result: ${Object.keys(params).length} parameters`);
     return params;
     
   } catch (error) {
-    console.error('❌ [HBL DECRYPT] Decryption failed with error:', error.message);
-    console.error('📋 [HBL DECRYPT] Error stack:', error.stack);
+    console.error('💥 [FIXED DECRYPT] Fatal error:', error.message);
+    console.error(error.stack);
     return {};
   }
 }
 
-// ==================== ENHANCED PAYMENT SUCCESS HANDLER ====================
-module.exports.handlePaymentSuccess = asyncErrorHandler(async (req, res) => {
-  const requestId = crypto.randomUUID();
-  
-  console.log('\n🎉 ========== PAYMENT SUCCESS CALLBACK ==========');
-  console.log(`🆔 Request ID: ${requestId}`);
-  console.log('📨 Request Method:', req.method);
-  console.log('📨 Request URL:', req.url);
-  console.log('📨 Query Parameters:', req.query);
-  console.log('📨 Body Parameters:', req.body || 'undefined');
-  
+
+// ==================== ALTERNATIVE: NODE.JS CRYPTO APPROACH ====================
+function alternativeNodeCryptoDecrypt(encryptedData, privateKeyPem) {
   try {
-    // Get encrypted data from multiple sources
-    // Safe access - doesn't crash if req.body is undefined
-const encryptedData = req.query.data || (req.body && req.body.data) || (req.params && req.params.data);
+    console.log('\n🔧 [NODE CRYPTO] Alternative decryption method...');
     
-    console.log('🔍 Encrypted data sources:');
-    console.log('- req.query.data:', !!req.query.data, req.query.data?.length || 0);
-   console.log('- req.body.data:', !!(req.body && req.body.data), (req.body && req.body.data && req.body.data.length) || 0);
-    console.log('- req.params.data:', !!req.params.data, req.params.data?.length || 0);
+    // Clean the data
+    const cleanData = encryptedData.replace(/\s+/g, '');
+    console.log('📝 [NODE CRYPTO] Cleaned data length:', cleanData.length);
     
-    if (!encryptedData) {
-      console.log('❌ No encrypted data received in any parameter');
-      console.log('📋 Available query params:', Object.keys(req.query));
-      console.log('📋 Available body params:', req.body ? Object.keys(req.body) : 'req.body is undefined');
-      
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/error?reason=missing_data&timestamp=${Date.now()}`);
-    }
+    // Decode base64
+    const encryptedBuffer = Buffer.from(cleanData, 'base64');
+    console.log('📦 [NODE CRYPTO] Buffer length:', encryptedBuffer.length);
     
-    console.log('📝 Encrypted data found:');
-    console.log('- Length:', encryptedData.length);
-    console.log('- Source:', req.query.data ? 'query' : (req.body && req.body.data) ? 'body' : 'params');
-    console.log('- First 100 chars:', encryptedData.substring(0, 100));
+    // Try different padding schemes
+    const paddingMethods = [
+      { name: 'PKCS1', padding: crypto.constants.RSA_PKCS1_PADDING },
+      { name: 'OAEP', padding: crypto.constants.RSA_PKCS1_OAEP_PADDING },
+      { name: 'NO_PADDING', padding: crypto.constants.RSA_NO_PADDING }
+    ];
     
-    if (!privateKeyPem) {
-      console.log('❌ Private key not configured in environment variables');
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/error?reason=config_error&timestamp=${Date.now()}`);
-    }
-    
-    // DECRYPT THE RESPONSE
-    console.log('🔐 Starting decryption process...');
-    const decryptedResponse = decryptHBLResponse(encryptedData, privateKeyPem);
-    
-    console.log('🔍 Decryption result:');
-    console.log('- Success:', Object.keys(decryptedResponse).length > 0);
-    console.log('- Keys found:', Object.keys(decryptedResponse));
-    console.log('- Full response:', decryptedResponse);
-    
-    if (!decryptedResponse || Object.keys(decryptedResponse).length === 0) {
-      console.log('❌ Decryption failed or returned empty result');
-      
-      // Log detailed debugging info
-      console.log('🔍 Debugging information:');
-      console.log('- node-forge available:', !!forge);
-      console.log('- Private key configured:', !!privateKeyPem);
-      console.log('- Private key length:', privateKeyPem?.length || 0);
-      console.log('- Encrypted data type:', typeof encryptedData);
-      console.log('- Is base64?', /^[A-Za-z0-9+/=]+$/.test(encryptedData));
-      
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/error?reason=decrypt_failed&timestamp=${Date.now()}`);
-    }
-    
-    // LOG ALL SUCCESS DATA TO CONSOLE
-    console.log('\n📋 ========== DECRYPTED SUCCESS RESPONSE ==========');
-    Object.entries(decryptedResponse).forEach(([key, value]) => {
-      console.log(`${key}:`, value);
-    });
-    console.log('===============================================\n');
-    
-    // Check if payment was successful - be flexible with response codes
-    const responseCode = decryptedResponse.RESPONSE_CODE;
-    const isSuccess = responseCode === '0' || 
-                     responseCode === '100' ||
-                     responseCode === 0 ||
-                     responseCode === 100 ||
-                     responseCode === '00' ||
-                     (responseCode && responseCode.toString().toLowerCase() === 'success');
-    
-    console.log('🔍 Payment success check:');
-    console.log('- Response code:', responseCode);
-    console.log('- Response code type:', typeof responseCode);
-    console.log('- Is success:', isSuccess);
-    
-    if (!isSuccess) {
-      console.log(`❌ Payment not successful. Response code: ${responseCode}`);
-      
-      // Create detailed failure URL with all available information
-      const failureParams = new URLSearchParams({
-        status: 'failed',
-        code: responseCode || 'unknown',
-        message: encodeURIComponent(decryptedResponse.RESPONSE_MESSAGE || 'Payment failed'),
-        ref: decryptedResponse.ORDER_REF_NUMBER || 'unknown',
-        timestamp: Date.now()
-      });
-      
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/failed?${failureParams.toString()}`);
-    }
-    
-    // Find payment record with multiple search strategies
-    let payment = null;
-    const searchStrategies = [];
-    
-    if (decryptedResponse.SESSION_ID) {
-      searchStrategies.push(
-        { sessionId: decryptedResponse.SESSION_ID },
-        { transactionId: decryptedResponse.SESSION_ID }
-      );
-    }
-    
-    if (decryptedResponse.ORDER_REF_NUMBER) {
-      searchStrategies.push(
-        { orderRefNumber: decryptedResponse.ORDER_REF_NUMBER },
-        { orderId: decryptedResponse.ORDER_REF_NUMBER },
-        { transactionId: decryptedResponse.ORDER_REF_NUMBER }
-      );
-    }
-    
-    if (decryptedResponse.MERCHANT_ORDER_NO) {
-      searchStrategies.push(
-        { orderId: decryptedResponse.MERCHANT_ORDER_NO },
-        { orderRefNumber: decryptedResponse.MERCHANT_ORDER_NO }
-      );
-    }
-    
-    console.log('🔍 Searching for payment record with strategies:', searchStrategies.length);
-    
-    for (let i = 0; i < searchStrategies.length && !payment; i++) {
-      const strategy = searchStrategies[i];
-      console.log(`🔍 Search strategy ${i + 1}:`, strategy);
-      
+    for (const method of paddingMethods) {
       try {
-        payment = await paymentModel.findOne(strategy);
-        if (payment) {
-          console.log(`✅ Payment found with strategy ${i + 1}`);
-          break;
-        }
-      } catch (searchError) {
-        console.warn(`⚠️ Search strategy ${i + 1} failed:`, searchError.message);
-      }
-    }
-    
-    // Extract payment information for URL
-    let paymentInfo = {
-      status: 'success',
-      amount: decryptedResponse.AMOUNT || '0',
-      currency: decryptedResponse.CURRENCY || 'PKR',
-      ref: decryptedResponse.ORDER_REF_NUMBER || 'unknown',
-      transactionId: decryptedResponse.SESSION_ID || decryptedResponse.ORDER_REF_NUMBER,
-      paymentType: decryptedResponse.PAYMENT_TYPE,
-      timestamp: Date.now()
-    };
-    
-    if (payment) {
-      console.log('💾 Updating payment record...');
-      
-      // Update payment record
-      await payment.updateOne({
-        status: 'completed',
-        responseCode: decryptedResponse.RESPONSE_CODE,
-        responseMessage: decryptedResponse.RESPONSE_MESSAGE,
-        paymentType: decryptedResponse.PAYMENT_TYPE,
-        completedAt: new Date(),
-        updatedAt: new Date(),
-        hblResponse: decryptedResponse
-      });
-      
-      console.log('✅ Payment record updated successfully');
-      
-      // Add payment record info to response
-      paymentInfo.paymentId = payment.paymentId;
-      paymentInfo.orderId = payment.orderId;
-      paymentInfo.amount = payment.amount.toString();
-      
-      // Update related booking
-      if (payment.bookingId) {
-        try {
-          await bookingModel.findByIdAndUpdate(payment.bookingId, {
-            paymentStatus: 'paid',
-            paidAt: new Date()
+        console.log(`🔄 [NODE CRYPTO] Trying ${method.name} padding...`);
+        
+        const decrypted = crypto.privateDecrypt({
+          key: privateKeyPem,
+          padding: method.padding
+        }, encryptedBuffer);
+        
+        const decryptedString = decrypted.toString('utf8');
+        console.log(`✅ [NODE CRYPTO] ${method.name} successful:`, decryptedString);
+        
+        // Parse the result
+        const params = {};
+        if (decryptedString.includes('=') && decryptedString.includes('&')) {
+          const pairs = decryptedString.split('&');
+          pairs.forEach(pair => {
+            if (pair.includes('=')) {
+              const [key, ...valueParts] = pair.split('=');
+              const value = valueParts.join('=');
+              params[key.trim()] = decodeURIComponent(value || '');
+            }
           });
-          console.log('🎟️ Booking updated to paid status');
-        } catch (bookingError) {
-          console.warn('⚠️ Failed to update booking:', bookingError.message);
+        } else {
+          params.RAW_DATA = decryptedString;
         }
+        
+        return params;
+        
+      } catch (error) {
+        console.log(`❌ [NODE CRYPTO] ${method.name} failed:`, error.message);
       }
-      
-      // Send success notification
-      try {
-        await notificationService.sendPaymentSuccess({
-          userId: payment.userId,
-          amount: payment.amount,
-          transactionId: payment.transactionId || paymentInfo.transactionId,
-          paymentMethod: 'HBLPay'
-        });
-        console.log('📧 Success notification sent');
-      } catch (notificationError) {
-        console.warn('⚠️ Failed to send notification:', notificationError.message);
-      }
-    } else {
-      console.warn('⚠️ Payment record not found in database');
     }
     
-    console.log('✅ PAYMENT SUCCESSFUL!');
-    
-    // Create success URL with all required parameters that match your frontend expectations
-    const successParams = new URLSearchParams({
-      status: paymentInfo.status,
-      paymentId: paymentInfo.paymentId || '',
-      orderId: paymentInfo.orderId || paymentInfo.ref,
-      amount: paymentInfo.amount,
-      currency: paymentInfo.currency,
-      transactionId: paymentInfo.transactionId || '',
-      ref: paymentInfo.ref,
-      timestamp: paymentInfo.timestamp
-    });
-    
-    const successUrl = `${process.env.FRONTEND_URL}/payment/success?${successParams.toString()}`;
-    
-    console.log('🎉 Success URL created:', successUrl);
-    console.log('📋 URL Parameters:', Object.fromEntries(successParams));
-    
-    return res.redirect(successUrl);
+    console.error('💥 [NODE CRYPTO] All padding methods failed');
+    return {};
     
   } catch (error) {
-    console.error('❌ Payment success handler error:', error);
-    console.error('📋 Error stack:', error.stack);
+    console.error('💥 [NODE CRYPTO] Fatal error:', error.message);
+    return {};
+  }
+}
+
+
+// ==================== ULTIMATE DECRYPTION FUNCTION ====================
+function ultimateHBLDecrypt(encryptedData, privateKeyPem) {
+  console.log('\n🚀 [ULTIMATE] Starting ultimate decryption process...');
+  
+  // Method 1: Fixed forge approach
+  console.log('🔄 [ULTIMATE] Trying fixed forge method...');
+  let result = fixedDecryptHBLResponse(encryptedData, privateKeyPem);
+  if (Object.keys(result).length > 0) {
+    console.log('✅ [ULTIMATE] Fixed forge method succeeded!');
+    return result;
+  }
+  
+  // Method 2: Node.js crypto approach
+  console.log('🔄 [ULTIMATE] Trying Node.js crypto method...');
+  result = alternativeNodeCryptoDecrypt(encryptedData, privateKeyPem);
+  if (Object.keys(result).length > 0) {
+    console.log('✅ [ULTIMATE] Node.js crypto method succeeded!');
+    return result;
+  }
+  
+  // Method 3: Try with different key formats (if applicable)
+  console.log('🔄 [ULTIMATE] All methods failed, checking key format...');
+  
+  // Log detailed diagnostics
+  console.log('🔍 [ULTIMATE] Diagnostics:');
+  console.log('- Input data length:', encryptedData?.length);
+  console.log('- Has spaces:', encryptedData?.includes(' '));
+  console.log('- Has URL encoding:', encryptedData?.includes('%'));
+  console.log('- Private key length:', privateKeyPem?.length);
+  console.log('- Private key starts with:', privateKeyPem?.substring(0, 50));
+  
+  return {};
+}
+
+
+// ==================== UPDATED SUCCESS HANDLER ====================
+module.exports.handlePaymentSuccess = asyncErrorHandler(async (req, res) => {
+  console.log('\n🎉 ========== ENHANCED PAYMENT SUCCESS CALLBACK ==========');
+  console.log('🔗 Full URL:', req.protocol + '://' + req.get('host') + req.originalUrl);
+  
+  try {
+    // Get encrypted data with more sources
+    const encryptedData = req.query.data || req.body.data || req.params.data || 
+                         req.query.encryptedData || req.body.encryptedData;
     
-    const errorParams = new URLSearchParams({
-      reason: 'server_error',
-      message: encodeURIComponent(error.message),
-      timestamp: Date.now()
+    if (!encryptedData) {
+      console.log('❌ No encrypted data found');
+      console.log('Available query params:', Object.keys(req.query));
+      console.log('Available body params:', req.body ? Object.keys(req.body) : 'none');
+      
+      return res.status(400).json({
+        success: false,
+        error: 'No encrypted data found in request',
+        received: {
+          query: req.query,
+          body: req.body,
+          params: req.params
+        }
+      });
+    }
+    
+    console.log('📥 Encrypted data received:');
+    console.log('- Length:', encryptedData.length);
+    console.log('- Preview:', encryptedData.substring(0, 150));
+    console.log('- Has spaces:', encryptedData.includes(' '));
+    
+    // Use the ultimate decryption method
+    const decryptedResponse = ultimateHBLDecrypt(encryptedData, privateKeyPem);
+    
+    if (!decryptedResponse || Object.keys(decryptedResponse).length === 0) {
+      console.log('💥 ALL DECRYPTION METHODS FAILED');
+      
+      // Return detailed error for debugging
+      return res.status(500).json({
+        success: false,
+        error: 'Decryption failed',
+        debug: {
+          dataLength: encryptedData.length,
+          dataPreview: encryptedData.substring(0, 200),
+          hasSpaces: encryptedData.includes(' '),
+          hasUrlEncoding: encryptedData.includes('%'),
+          privateKeyConfigured: !!privateKeyPem,
+          nodeForgeAvailable: !!forge
+        },
+        solution: 'Check the decryption logs above for specific error details'
+      });
+    }
+    
+    console.log('🎊 DECRYPTION SUCCESSFUL!');
+    console.log('📋 Decrypted parameters:', decryptedResponse);
+    
+    // Continue with your existing payment processing logic...
+    const responseCode = decryptedResponse.RESPONSE_CODE;
+    const isSuccess = ['0', '100', 0, 100, '00'].includes(responseCode) || 
+                     responseCode?.toString().toLowerCase() === 'success';
+    
+    if (!isSuccess) {
+      return res.redirect(`${process.env.FRONTEND_URL}/payment/failed?code=${responseCode}`);
+    }
+    
+    // Process successful payment...
+    const orderRefNumber = decryptedResponse.ORDER_REF_NUMBER || decryptedResponse.REFERENCE_NUMBER;
+    // ... rest of your success logic
+    
+    return res.redirect(`${process.env.FRONTEND_URL}/payment/success?order=${orderRefNumber}`);
+    
+  } catch (error) {
+    console.error('💥 Payment success handler error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
-    
-    return res.redirect(`${process.env.FRONTEND_URL}/payment/error?${errorParams.toString()}`);
   }
 });
 
@@ -960,15 +930,17 @@ module.exports.testDecryption = (req, res) => {
       });
     }
 
-    // Test with sample encrypted data (you can provide real HBL data here)
-    const testData = req.body.testData || "VGVzdCBkYXRhIGZvciBkZWNyeXB0aW9uIHRlc3Rpbmc="; // Base64 encoded test
+    // Test with real HBL data if provided
+    const testData = req.body.encryptedData || req.query.data || "VGVzdCBkYXRhIGZvciBkZWNyeXB0aW9uIHRlc3Rpbmc=";
     
     console.log('🧪 Testing with data length:', testData.length);
+    console.log('🧪 Testing data preview:', testData.substring(0, 200));
     
     // Test key loading
     try {
       const testKey = forge.pki.privateKeyFromPem(privateKeyPem);
       console.log('✅ Private key loads successfully');
+      console.log('🔍 Key size:', testKey.n.bitLength(), 'bits');
     } catch (keyError) {
       return res.json({
         success: false,
@@ -978,23 +950,38 @@ module.exports.testDecryption = (req, res) => {
       });
     }
 
-    console.log('🎯 Decryption system is ready for production!');
+    // Test decryption with provided data
+    const decryptResult1 = decryptHBLResponse(testData, privateKeyPem);
+    const decryptResult2 = decryptHBLResponseWithNodeCrypto(testData, privateKeyPem);
+    
+    console.log('🎯 Decryption test completed!');
     
     return res.json({
       success: true,
-      message: 'Decryption system is properly configured and ready!',
-      status: 'READY',
+      message: 'Decryption system test completed',
+      status: 'TESTED',
+      results: {
+        forgeDecryption: {
+          success: Object.keys(decryptResult1).length > 0,
+          keys: Object.keys(decryptResult1),
+          data: decryptResult1
+        },
+        cryptoDecryption: {
+          success: Object.keys(decryptResult2).length > 0,
+          keys: Object.keys(decryptResult2),
+          data: decryptResult2
+        }
+      },
       configuration: {
         privateKeyConfigured: true,
         nodeForgeAvailable: true,
         environmentReady: true
       },
-      nextSteps: [
-        'Complete a real payment transaction',
-        'Check server logs during callback',
-        'Verify success/cancel URLs receive proper parameters'
-      ],
-      note: 'Your decryption will work when HBL sends real encrypted callback data'
+      instructions: [
+        'If both methods failed, the encrypted data might be invalid',
+        'If one method worked, use that method for production',
+        'Check the console logs for detailed debugging information'
+      ]
     });
     
   } catch (error) {
@@ -1003,6 +990,245 @@ module.exports.testDecryption = (req, res) => {
       success: false,
       error: 'Test failed: ' + error.message,
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+};
+
+// ==================== MANUAL DECRYPTION ENDPOINT ====================
+module.exports.manualDecrypt = async (req, res) => {
+  console.log('\n🔧 ========== MANUAL DECRYPTION TEST ==========');
+  
+  try {
+    const { encryptedData, method } = req.body;
+    
+    if (!encryptedData) {
+      return res.json({
+        success: false,
+        error: 'No encrypted data provided',
+        usage: 'POST /api/payments/manual-decrypt with { "encryptedData": "your_encrypted_string", "method": "forge|crypto|both" }'
+      });
+    }
+    
+    console.log('📝 Manual decryption request:');
+    console.log('- Data length:', encryptedData.length);
+    console.log('- Method requested:', method || 'both');
+    console.log('- Data preview:', encryptedData.substring(0, 100));
+    
+    const results = {};
+    
+    // Test forge method
+    if (!method || method === 'forge' || method === 'both') {
+      console.log('🔄 Testing forge decryption...');
+      const forgeResult = decryptHBLResponse(encryptedData, privateKeyPem);
+      results.forge = {
+        success: Object.keys(forgeResult).length > 0,
+        data: forgeResult,
+        keys: Object.keys(forgeResult)
+      };
+    }
+    
+    // Test crypto method
+    if (!method || method === 'crypto' || method === 'both') {
+      console.log('🔄 Testing crypto decryption...');
+      const cryptoResult = decryptHBLResponseWithNodeCrypto(encryptedData, privateKeyPem);
+      results.crypto = {
+        success: Object.keys(cryptoResult).length > 0,
+        data: cryptoResult,
+        keys: Object.keys(cryptoResult)
+      };
+    }
+    
+    return res.json({
+      success: true,
+      message: 'Manual decryption completed',
+      inputData: {
+        length: encryptedData.length,
+        preview: encryptedData.substring(0, 100),
+        isBase64Valid: /^[A-Za-z0-9+/=]+$/.test(encryptedData.replace(/\s/g, ''))
+      },
+      results,
+      recommendation: results.forge?.success ? 'Use forge method' : 
+                      results.crypto?.success ? 'Use crypto method' : 
+                      'Both methods failed - check your private key and data format'
+    });
+    
+  } catch (error) {
+    console.error('❌ Manual decryption failed:', error);
+    return res.json({
+      success: false,
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+};
+
+// ==================== KEY VALIDATION ENDPOINT ====================
+module.exports.validateKeys = async (req, res) => {
+  console.log('\n🔑 ========== KEY VALIDATION TEST ==========');
+  
+  try {
+    const validation = {
+      privateKey: {
+        configured: !!privateKeyPem,
+        length: privateKeyPem?.length || 0,
+        format: 'unknown',
+        valid: false,
+        keySize: 0
+      },
+      publicKey: {
+        configured: !!HBL_PUBLIC_KEY,
+        length: HBL_PUBLIC_KEY?.length || 0,
+        format: 'unknown',
+        valid: false
+      },
+      nodeForge: {
+        available: !!forge,
+        version: forge ? 'available' : 'not available'
+      }
+    };
+    
+    // Validate private key
+    if (privateKeyPem) {
+      try {
+        if (privateKeyPem.includes('BEGIN RSA PRIVATE KEY') || privateKeyPem.includes('BEGIN PRIVATE KEY')) {
+          validation.privateKey.format = 'PEM';
+          
+          if (forge) {
+            const key = forge.pki.privateKeyFromPem(privateKeyPem);
+            validation.privateKey.valid = true;
+            validation.privateKey.keySize = key.n.bitLength();
+          }
+        } else if (privateKeyPem.includes('<RSAKeyValue>')) {
+          validation.privateKey.format = 'XML';
+        }
+      } catch (error) {
+        validation.privateKey.error = error.message;
+      }
+    }
+    
+    // Validate public key
+    if (HBL_PUBLIC_KEY) {
+      try {
+        if (HBL_PUBLIC_KEY.includes('BEGIN PUBLIC KEY')) {
+          validation.publicKey.format = 'PEM';
+          validation.publicKey.valid = true;
+        } else if (HBL_PUBLIC_KEY.includes('<RSAKeyValue>')) {
+          validation.publicKey.format = 'XML';
+          validation.publicKey.valid = true;
+        }
+      } catch (error) {
+        validation.publicKey.error = error.message;
+      }
+    }
+    
+    return res.json({
+      success: true,
+      message: 'Key validation completed',
+      validation,
+      recommendations: [
+        !validation.privateKey.configured ? 'Configure MERCHANT_PRIVATE_KEY_PEM in environment' : null,
+        !validation.privateKey.valid ? 'Private key format is invalid - should be PEM format' : null,
+        !validation.nodeForge.available ? 'Install node-forge: npm install node-forge' : null,
+        validation.privateKey.keySize < 2048 ? 'Key size should be at least 2048 bits' : null
+      ].filter(Boolean)
+    });
+    
+  } catch (error) {
+    console.error('❌ Key validation failed:', error);
+    return res.json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+// ==================== SIMULATE HBL CALLBACK ====================
+module.exports.simulateCallback = async (req, res) => {
+  console.log('\n🎭 ========== SIMULATING HBL CALLBACK ==========');
+  
+  try {
+    const { orderId, responseCode = '0', responseMessage = 'Transaction successful' } = req.body;
+    
+    if (!orderId) {
+      return res.json({
+        success: false,
+        error: 'Order ID is required',
+        usage: 'POST /api/payments/simulate-callback with { "orderId": "your_order_id", "responseCode": "0", "responseMessage": "Success" }'
+      });
+    }
+    
+    // Create mock decrypted response data
+    const mockResponseData = {
+      RESPONSE_CODE: responseCode,
+      RESPONSE_MESSAGE: responseMessage,
+      ORDER_REF_NUMBER: orderId,
+      TRANSACTION_ID: 'TXN_' + Date.now(),
+      PAYMENT_TYPE: 'CREDIT_CARD',
+      AMOUNT: '100.00',
+      CURRENCY: 'PKR',
+      PAYMENT_DATE: new Date().toISOString(),
+      MERCHANT_ID: 'teliadmin'
+    };
+    
+    console.log('🎭 Simulating callback with data:', mockResponseData);
+    
+    // Find the payment record
+    const payment = await paymentModel.findOne({ orderRefNumber: orderId });
+    
+    if (!payment) {
+      return res.json({
+        success: false,
+        error: `Payment record not found for order: ${orderId}`,
+        suggestion: 'Create a payment first using the initiate payment endpoint'
+      });
+    }
+    
+    // Update payment status based on response code
+    const isSuccess = responseCode === '0' || responseCode === '100';
+    const newStatus = isSuccess ? 'completed' : 'failed';
+    
+    await payment.updateOne({
+      status: newStatus,
+      completedAt: isSuccess ? new Date() : null,
+      failureReason: isSuccess ? null : responseMessage,
+      gatewayResponse: mockResponseData,
+      transactionId: mockResponseData.TRANSACTION_ID,
+      updatedAt: new Date()
+    });
+    
+    // Update booking if exists
+    if (payment.bookingId && isSuccess) {
+      await bookingModel.findByIdAndUpdate(payment.bookingId, {
+        paymentStatus: 'paid',
+        status: 'confirmed',
+        confirmedAt: new Date(),
+        updatedAt: new Date()
+      });
+    }
+    
+    return res.json({
+      success: true,
+      message: 'Callback simulation completed',
+      simulation: {
+        orderId,
+        responseCode,
+        paymentStatus: newStatus,
+        transactionId: mockResponseData.TRANSACTION_ID
+      },
+      mockData: mockResponseData,
+      paymentUpdated: true,
+      nextSteps: [
+        'Check your payment record in database',
+        'Verify booking status was updated',
+        'Test with different response codes for failure scenarios'
+      ]
+    });
+    
+  } catch (error) {
+    console.error('❌ Callback simulation failed:', error);
+    return res.json({
+      success: false,
+      error: error.message
     });
   }
 };

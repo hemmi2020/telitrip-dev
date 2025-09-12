@@ -7,7 +7,10 @@ const ApiResponse = require('../utils/response.util');
 
 
 
-
+router.post('/test-decryption', paymentController.testDecryption);
+router.post('/manual-decrypt', paymentController.manualDecrypt);
+router.get('/validate-keys', paymentController.validateKeys);
+router.post('/simulate-callback', paymentController.simulateCallback);
 
 
 
