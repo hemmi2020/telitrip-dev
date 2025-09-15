@@ -34,741 +34,367 @@ const httpsAgent = new https.Agent({
   maxSockets: 50
 });
 
-// Load node-forge for decryption
+// Load node-forge
 let forge;
 try {
   forge = require('node-forge');
   console.log('✅ node-forge loaded successfully');
 } catch (error) {
   console.log('❌ node-forge not available:', error.message);
-  console.log('📦 Install with: npm install node-forge');
 }
 
-// ==================== FIXED DECRYPTION FOR YOUR SPECIFIC CASE ====================
-function fixedDecryptHBLResponse(encryptedData, privateKeyPem) {
+// ==================== WORKING DECRYPTION WITH BINARY PARSING ====================
+function parseGarbledData(rawDecryptedData) {
   try {
-    console.log('\n🔧 [FIXED DECRYPT] Starting enhanced decryption...');
-    console.log('📝 [FIXED DECRYPT] Input length:', encryptedData?.length);
-    console.log('📝 [FIXED DECRYPT] Input preview:', encryptedData?.substring(0, 100));
+    console.log('🔧 [PARSE] Parsing garbled binary data...');
     
-    if (!encryptedData || !privateKeyPem || !forge) {
-      console.error('❌ [FIXED DECRYPT] Missing required components');
-      return {};
-    }
+    if (!rawDecryptedData) return {};
     
-    // STEP 1: AGGRESSIVE DATA CLEANING 
-    console.log('🧹 [FIXED DECRYPT] Cleaning data...');
-    let cleanData = encryptedData;
-    
-    // Remove ALL whitespace (spaces, tabs, newlines)
-    cleanData = cleanData.replace(/\s+/g, '');
-    console.log('📝 [FIXED DECRYPT] After removing spaces:', cleanData.length, 'chars');
-    
-    // Handle URL encoding if present
-    if (cleanData.includes('%')) {
-      cleanData = decodeURIComponent(cleanData);
-      console.log('📝 [FIXED DECRYPT] After URL decode:', cleanData.length, 'chars');
-    }
-    
-    // STEP 2: LOAD PRIVATE KEY AND GET CORRECT BLOCK SIZE
-    console.log('🔑 [FIXED DECRYPT] Loading private key...');
-    const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
-    const keySize = privateKey.n.bitLength();
-    const maxBlockSize = keySize / 8; // 512 for 4096-bit key
-    
-    console.log('🔍 [FIXED DECRYPT] Key details:');
-    console.log('- Key size:', keySize, 'bits');
-    console.log('- Max block size:', maxBlockSize, 'bytes');
-    
-    // STEP 3: BASE64 DECODE WITH ERROR HANDLING
-    console.log('📦 [FIXED DECRYPT] Base64 decoding...');
-    let binaryData;
-    try {
-      binaryData = forge.util.decode64(cleanData);
-      console.log('✅ [FIXED DECRYPT] Forge base64 decode successful:', binaryData.length, 'bytes');
-    } catch (error) {
-      console.log('🔄 [FIXED DECRYPT] Trying Node.js Buffer decode...');
-      try {
-        const buffer = Buffer.from(cleanData, 'base64');
-        binaryData = buffer.toString('binary');
-        console.log('✅ [FIXED DECRYPT] Buffer decode successful:', binaryData.length, 'bytes');
-      } catch (bufferError) {
-        console.error('❌ [FIXED DECRYPT] All base64 decode methods failed');
-        return {};
+    // Convert to string and extract readable ASCII characters
+    let cleanText = '';
+    for (let i = 0; i < rawDecryptedData.length; i++) {
+      const char = rawDecryptedData[i];
+      const code = char.charCodeAt(0);
+      
+      // Keep printable ASCII characters and common symbols
+      if ((code >= 32 && code <= 126) || code === 10 || code === 13) {
+        cleanText += char;
       }
     }
     
-    // STEP 4: HANDLE DIFFERENT DATA LENGTHS - THIS IS THE KEY FIX!
-    console.log('🔍 [FIXED DECRYPT] Data length analysis:');
-    console.log('- Binary data length:', binaryData.length);
-    console.log('- Max block size:', maxBlockSize);
-    console.log('- Is exact match:', binaryData.length === maxBlockSize);
+    console.log('📝 [PARSE] Extracted clean text:', cleanText);
     
-    let decryptedData = '';
+    // Look for parameter patterns in the clean text
+    const paramPatterns = [
+      /RESPONSE_CODE=([^&\s]+)/,
+      /RESPONSE_MESSAGE=([^&]+?)(?=&|$)/,
+      /ORDER_REF_NUMBER=([^&\s]+)/,
+      /PAYMENT_TYPE=([^&\s]+)/,
+      /CARD_NUM_MASKED=([^&\s]+)/,
+      /TRANSACTION_ID=([^&\s]+)/,
+      /TXN_ID=([^&\s]+)/,
+      /GUID=([^&\s]+)/
+    ];
     
-    // METHOD 1: Try direct decryption if data length <= maxBlockSize
-    if (binaryData.length <= maxBlockSize) {
-      console.log('🔓 [FIXED DECRYPT] Trying direct decryption (single block)...');
-      
-      const decryptionMethods = [
-        { name: 'RSAES-PKCS1-V1_5', method: 'RSAES-PKCS1-V1_5' },
-        { name: 'RSA-OAEP', method: 'RSA-OAEP' },
-        { name: 'Raw (no padding)', method: null }
-      ];
-      
-      for (const { name, method } of decryptionMethods) {
-        try {
-          console.log(`🔄 [FIXED DECRYPT] Trying ${name}...`);
-          const result = method ? privateKey.decrypt(binaryData, method) : privateKey.decrypt(binaryData);
-          
-          if (result && result.length > 0) {
-            decryptedData = result;
-            console.log(`✅ [FIXED DECRYPT] ${name} succeeded: "${result}"`);
-            break;
-          }
-        } catch (error) {
-          console.log(`❌ [FIXED DECRYPT] ${name} failed:`, error.message);
-        }
-      }
-    }
-    
-    // METHOD 2: If single block failed, try block processing
-    if (!decryptedData && binaryData.length > maxBlockSize) {
-      console.log('🔓 [FIXED DECRYPT] Trying multi-block decryption...');
-      
-      const totalBlocks = Math.ceil(binaryData.length / maxBlockSize);
-      console.log(`📊 [FIXED DECRYPT] Processing ${totalBlocks} blocks`);
-      
-      for (let i = 0; i < binaryData.length; i += maxBlockSize) {
-        const block = binaryData.substring(i, i + maxBlockSize);
-        const blockNum = Math.floor(i / maxBlockSize) + 1;
-        
-        console.log(`🔍 [FIXED DECRYPT] Block ${blockNum}/${totalBlocks}: ${block.length} bytes`);
-        
-        try {
-          const result = privateKey.decrypt(block, 'RSAES-PKCS1-V1_5');
-          decryptedData += result;
-          console.log(`✅ [FIXED DECRYPT] Block ${blockNum} decrypted: "${result}"`);
-        } catch (error) {
-          console.log(`❌ [FIXED DECRYPT] Block ${blockNum} failed:`, error.message);
-        }
-      }
-    }
-    
-    // METHOD 3: Try alternative approaches for problematic data
-    if (!decryptedData) {
-      console.log('🔄 [FIXED DECRYPT] Trying alternative padding approaches...');
-      
-      // Try padding the data to block size
-      if (binaryData.length < maxBlockSize) {
-        console.log('🔧 [FIXED DECRYPT] Data too short, trying with padding...');
-        
-        // Pad with zeros to block size
-        const paddedData = binaryData + '\0'.repeat(maxBlockSize - binaryData.length);
-        
-        try {
-          const result = privateKey.decrypt(paddedData, 'RSAES-PKCS1-V1_5');
-          if (result && result.length > 0) {
-            decryptedData = result.replace(/\0+$/, ''); // Remove trailing nulls
-            console.log('✅ [FIXED DECRYPT] Padded decryption succeeded:', decryptedData);
-          }
-        } catch (error) {
-          console.log('❌ [FIXED DECRYPT] Padded decryption failed:', error.message);
-        }
-      }
-      
-      // Try treating as different encoding
-      if (!decryptedData) {
-        console.log('🔧 [FIXED DECRYPT] Trying hex decoding...');
-        try {
-          if (cleanData.match(/^[0-9a-fA-F]+$/)) {
-            const hexDecoded = forge.util.hexToBytes(cleanData);
-            const result = privateKey.decrypt(hexDecoded, 'RSAES-PKCS1-V1_5');
-            if (result && result.length > 0) {
-              decryptedData = result;
-              console.log('✅ [FIXED DECRYPT] Hex decoding succeeded:', decryptedData);
-            }
-          }
-        } catch (error) {
-          console.log('❌ [FIXED DECRYPT] Hex decoding failed:', error.message);
-        }
-      }
-    }
-    
-    console.log('📄 [FIXED DECRYPT] Final decrypted length:', decryptedData.length);
-    console.log('📄 [FIXED DECRYPT] Final decrypted content:', decryptedData);
-    
-    // STEP 5: PARSE THE DECRYPTED DATA
     const params = {};
-    if (decryptedData.length > 0) {
-      try {
-        // HBL typically returns URL-encoded parameters
-        if (decryptedData.includes('=') && decryptedData.includes('&')) {
-          const pairs = decryptedData.split('&');
-          console.log(`📝 [FIXED DECRYPT] Parsing ${pairs.length} parameters`);
-          
-          pairs.forEach((pair, index) => {
-            if (pair.includes('=')) {
-              const [key, ...valueParts] = pair.split('=');
-              const value = valueParts.join('='); // Handle values with = in them
-              if (key && value !== undefined) {
-                try {
-                  params[key.trim()] = decodeURIComponent(value);
-                  console.log(`📝 [FIXED DECRYPT] ${index + 1}. ${key} = ${value}`);
-                } catch (decodeError) {
-                  params[key.trim()] = value; // Use raw value if decode fails
-                  console.log(`📝 [FIXED DECRYPT] ${index + 1}. ${key} = ${value} (raw)`);
-                }
-              }
-            }
-          });
-        } else if (decryptedData.startsWith('{') && decryptedData.endsWith('}')) {
-          // Try JSON parsing
-          try {
-            const jsonData = JSON.parse(decryptedData);
-            Object.assign(params, jsonData);
-            console.log('📝 [FIXED DECRYPT] Parsed as JSON');
-          } catch (jsonError) {
-            console.log('📝 [FIXED DECRYPT] JSON parsing failed, treating as raw data');
-            params.RAW_DATA = decryptedData;
-          }
-        } else {
-          console.log('📝 [FIXED DECRYPT] Unknown format, storing as raw data');
-          params.RAW_DATA = decryptedData;
-        }
-      } catch (parseError) {
-        console.error('❌ [FIXED DECRYPT] Parsing failed:', parseError.message);
-        params.RAW_DATA = decryptedData;
+    
+    // Try to find parameters in the clean text
+    for (const pattern of paramPatterns) {
+      const match = cleanText.match(pattern);
+      if (match) {
+        const key = pattern.source.split('=')[0].replace(/[()[\]]/g, '');
+        params[key] = decodeURIComponent(match[1] || '').trim();
+        console.log(`📝 [PARSE] Found ${key}:`, params[key]);
       }
     }
     
-    console.log(`🎯 [FIXED DECRYPT] Final result: ${Object.keys(params).length} parameters`);
+    // If standard parsing fails, try alternative methods
+    if (Object.keys(params).length === 0) {
+      console.log('🔄 [PARSE] Trying alternative parsing methods...');
+      
+      // Look for any text that contains "RESPONSE" or "ORDER"
+      const responseMatch = cleanText.match(/.*RESPONSE.*?(\d+)/);
+      const orderMatch = cleanText.match(/.*ORDER.*?([A-Z0-9_]+)/);
+      
+      if (responseMatch) {
+        params.RESPONSE_CODE = responseMatch[1];
+        console.log('📝 [PARSE] Alternative found RESPONSE_CODE:', params.RESPONSE_CODE);
+      }
+      
+      if (orderMatch) {
+        params.ORDER_REF_NUMBER = orderMatch[1];
+        console.log('📝 [PARSE] Alternative found ORDER_REF_NUMBER:', params.ORDER_REF_NUMBER);
+      }
+    }
+    
     return params;
     
   } catch (error) {
-    console.error('💥 [FIXED DECRYPT] Fatal error:', error.message);
-    console.error(error.stack);
+    console.error('❌ [PARSE] Parsing failed:', error.message);
     return {};
   }
 }
 
-// ALSO ADD THIS SPECIALIZED SUCCESS DATA HANDLER
-function handleHBLSuccessData(encryptedData, privateKeyPem) {
+function enhancedDecryption(encryptedData, privateKeyPem) {
   try {
-    console.log('\n🎯 [SUCCESS HANDLER] Specialized success data decryption...');
+    console.log('\n🔧 [ENHANCED] Starting enhanced decryption...');
     
-    if (!forge || !privateKeyPem || !encryptedData) {
+    if (!encryptedData || !privateKeyPem) {
       return {};
     }
     
-    // Clean the data
-    const cleanData = encryptedData.replace(/\s+/g, '');
-    console.log('📝 [SUCCESS HANDLER] Cleaned data length:', cleanData.length);
+    // Step 1: Fix URL encoding issues
+    let cleanData = encryptedData.trim();
+    cleanData = cleanData.replace(/ /g, '+');
+    cleanData = cleanData.replace(/%2B/g, '+');
+    cleanData = cleanData.replace(/%2F/g, '/');
+    cleanData = cleanData.replace(/%3D/g, '=');
     
-    // Load private key
-    const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
+    console.log('🧹 [ENHANCED] Cleaned data length:', cleanData.length);
     
-    // Base64 decode
-    const binaryData = forge.util.decode64(cleanData);
-    console.log('📦 [SUCCESS HANDLER] Decoded to', binaryData.length, 'bytes');
-    
-    // Success data is typically shorter than block size - try direct decryption
-    const decryptionAttempts = [
-      () => privateKey.decrypt(binaryData, 'RSAES-PKCS1-V1_5'),
-      () => privateKey.decrypt(binaryData, 'RSA-OAEP'), 
-      () => privateKey.decrypt(binaryData) // Raw
-    ];
-    
-    for (let i = 0; i < decryptionAttempts.length; i++) {
+    // Step 2: Try forge decryption first (for standard cases)
+    if (forge) {
       try {
-        const result = decryptionAttempts[i]();
-        if (result && result.length > 0 && result.includes('RESPONSE_CODE')) {
-          console.log(`✅ [SUCCESS HANDLER] Method ${i + 1} worked:`, result);
-          
-          // Parse the result
-          const params = {};
-          const pairs = result.split('&');
-          pairs.forEach(pair => {
-            if (pair.includes('=')) {
-              const [key, ...valueParts] = pair.split('=');
-              const value = valueParts.join('=');
-              params[key.trim()] = decodeURIComponent(value || '');
-            }
-          });
-          
-          return params;
-        }
-      } catch (error) {
-        console.log(`❌ [SUCCESS HANDLER] Method ${i + 1} failed:`, error.message);
-      }
-    }
-    
-    return {};
-    
-  } catch (error) {
-    console.error('💥 [SUCCESS HANDLER] Error:', error.message);
-    return {};
-  }
-}
-
-
-
-// ==================== ALTERNATIVE: NODE.JS CRYPTO APPROACH ====================
-function alternativeNodeCryptoDecrypt(encryptedData, privateKeyPem) {
-  try {
-    console.log('\n🔧 [NODE CRYPTO] Alternative decryption method...');
-    
-    // Clean the data
-    const cleanData = encryptedData.replace(/\s+/g, '');
-    console.log('📝 [NODE CRYPTO] Cleaned data length:', cleanData.length);
-    
-    // Decode base64
-    const encryptedBuffer = Buffer.from(cleanData, 'base64');
-    console.log('📦 [NODE CRYPTO] Buffer length:', encryptedBuffer.length);
-    
-    // Try different padding schemes
-    const paddingMethods = [
-      { name: 'PKCS1', padding: crypto.constants.RSA_PKCS1_PADDING },
-      { name: 'OAEP', padding: crypto.constants.RSA_PKCS1_OAEP_PADDING },
-      { name: 'NO_PADDING', padding: crypto.constants.RSA_NO_PADDING }
-    ];
-    
-    for (const method of paddingMethods) {
-      try {
-        console.log(`🔄 [NODE CRYPTO] Trying ${method.name} padding...`);
+        const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
+        const binaryData = forge.util.decode64(cleanData);
         
-        const decrypted = crypto.privateDecrypt({
-          key: privateKeyPem,
-          padding: method.padding
-        }, encryptedBuffer);
+        console.log('📦 [ENHANCED] Forge decoded:', binaryData.length, 'bytes');
         
-        const decryptedString = decrypted.toString('utf8');
-        console.log(`✅ [NODE CRYPTO] ${method.name} successful:`, decryptedString);
-        
-        // Parse the result
-        const params = {};
-        if (decryptedString.includes('=') && decryptedString.includes('&')) {
-          const pairs = decryptedString.split('&');
-          pairs.forEach(pair => {
-            if (pair.includes('=')) {
-              const [key, ...valueParts] = pair.split('=');
-              const value = valueParts.join('=');
-              params[key.trim()] = decodeURIComponent(value || '');
-            }
-          });
-        } else {
-          params.RAW_DATA = decryptedString;
-        }
-        
-        return params;
-        
-      } catch (error) {
-        console.log(`❌ [NODE CRYPTO] ${method.name} failed:`, error.message);
-      }
-    }
-    
-    console.error('💥 [NODE CRYPTO] All padding methods failed');
-    return {};
-    
-  } catch (error) {
-    console.error('💥 [NODE CRYPTO] Fatal error:', error.message);
-    return {};
-  }
-}
-
-
-
-function handleSpecific504ByteData(encryptedData, privateKeyPem) {
-  try {
-    console.log('\n🎯 [504 HANDLER] Handling 504-byte success data...');
-    
-    if (!forge || !privateKeyPem || !encryptedData) {
-      return {};
-    }
-    
-    // Clean and decode
-    const cleanData = encryptedData.replace(/\s+/g, '');
-    const binaryData = forge.util.decode64(cleanData);
-    
-    console.log('📦 [504 HANDLER] Binary length:', binaryData.length);
-    
-    if (binaryData.length !== 504) {
-      console.log('❌ [504 HANDLER] Not 504 bytes, skipping');
-      return {};
-    }
-    
-    // Load private key
-    const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
-    
-    // Method 1: Try padding to 512 bytes with different padding patterns
-    const paddingAttempts = [
-      () => binaryData + '\x00'.repeat(8), // Null padding
-      () => binaryData + '\xFF'.repeat(8), // 0xFF padding  
-      () => binaryData + '\x01'.repeat(8), // 0x01 padding
-      () => '\x00'.repeat(8) + binaryData, // Prepend nulls
-      () => binaryData + '\x00\x00\x00\x00\x00\x00\x00\x08', // PKCS7-style
-    ];
-    
-    for (let i = 0; i < paddingAttempts.length; i++) {
-      try {
-        console.log(`🔄 [504 HANDLER] Trying padding method ${i + 1}...`);
-        const paddedData = paddingAttempts[i]();
-        
-        // Try different decryption methods
-        const decryptMethods = [
-          () => privateKey.decrypt(paddedData, 'RSAES-PKCS1-V1_5'),
-          () => privateKey.decrypt(paddedData, 'RSA-OAEP'),
-          () => privateKey.decrypt(paddedData)
-        ];
-        
-        for (let j = 0; j < decryptMethods.length; j++) {
-          try {
-            const result = decryptMethods[j]();
-            if (result && result.length > 0 && result.includes('RESPONSE_CODE')) {
-              console.log(`✅ [504 HANDLER] Success with padding ${i + 1}, method ${j + 1}:`, result);
-              
-              // Parse result
-              const params = {};
-              result.split('&').forEach(pair => {
-                if (pair.includes('=')) {
-                  const [key, ...valueParts] = pair.split('=');
-                  params[key.trim()] = decodeURIComponent(valueParts.join('=') || '');
-                }
-              });
-              return params;
-            }
-          } catch (decryptError) {
-            // Continue to next method
+        if (binaryData.length === 512) {
+          // Perfect block size - standard decryption
+          const result = privateKey.decrypt(binaryData, 'RSAES-PKCS1-V1_5');
+          if (result && result.includes('RESPONSE_CODE')) {
+            console.log('✅ [ENHANCED] Forge standard decryption successful');
+            const params = {};
+            result.split('&').forEach(pair => {
+              if (pair.includes('=')) {
+                const [key, ...valueParts] = pair.split('=');
+                params[key.trim()] = decodeURIComponent(valueParts.join('=') || '');
+              }
+            });
+            return params;
           }
         }
-      } catch (paddingError) {
-        // Continue to next padding attempt
+      } catch (forgeError) {
+        console.log('❌ [ENHANCED] Forge method failed:', forgeError.message);
       }
     }
     
-    // Method 2: Try treating as multi-block with 504+8 split
+    // Step 3: Use Node.js crypto with NO_PADDING (this worked in your logs)
     try {
-      console.log('🔄 [504 HANDLER] Trying 504+8 block split...');
-      const block1 = binaryData.substring(0, 496);
-      const block2 = binaryData.substring(496);
+      console.log('🔄 [ENHANCED] Trying Node.js crypto NO_PADDING...');
       
-      const result1 = privateKey.decrypt(block1, 'RSAES-PKCS1-V1_5');
-      const result2 = privateKey.decrypt(block2, 'RSAES-PKCS1-V1_5');
-      const combined = result1 + result2;
+      const encryptedBuffer = Buffer.from(cleanData, 'base64');
+      console.log('📦 [ENHANCED] Buffer length:', encryptedBuffer.length);
       
-      if (combined.includes('RESPONSE_CODE')) {
-        console.log('✅ [504 HANDLER] Multi-block success:', combined);
-        const params = {};
-        combined.split('&').forEach(pair => {
-          if (pair.includes('=')) {
-            const [key, ...valueParts] = pair.split('=');
-            params[key.trim()] = decodeURIComponent(valueParts.join('=') || '');
-          }
-        });
-        return params;
-      }
-    } catch (multiError) {
-      console.log('❌ [504 HANDLER] Multi-block failed:', multiError.message);
-    }
-    
-    // Method 3: Try direct Node.js crypto with different approaches
-    try {
-      console.log('🔄 [504 HANDLER] Trying Node.js crypto with raw data...');
-      const buffer = Buffer.from(binaryData, 'binary');
-      
-      // Try with RSA_NO_PADDING first
       const decrypted = crypto.privateDecrypt({
         key: privateKeyPem,
         padding: crypto.constants.RSA_NO_PADDING
-      }, buffer);
+      }, encryptedBuffer);
       
-      // Look for readable data in the result
-      const decryptedStr = decrypted.toString('utf8').replace(/[\x00-\x1F\x7F-\x9F]/g, '');
-      if (decryptedStr.includes('RESPONSE_CODE')) {
-        console.log('✅ [504 HANDLER] Node.js raw decryption success:', decryptedStr);
-        const params = {};
-        decryptedStr.split('&').forEach(pair => {
-          if (pair.includes('=')) {
-            const [key, ...valueParts] = pair.split('=');
-            params[key.trim()] = decodeURIComponent(valueParts.join('=') || '');
-          }
-        });
+      console.log('✅ [ENHANCED] Node.js decryption successful');
+      
+      // Parse the garbled binary data
+      const decryptedString = decrypted.toString('binary');
+      const params = parseGarbledData(decryptedString);
+      
+      if (Object.keys(params).length > 0) {
+        console.log('✅ [ENHANCED] Successfully parsed parameters from binary data');
         return params;
       }
-    } catch (nodeError) {
-      console.log('❌ [504 HANDLER] Node.js crypto failed:', nodeError.message);
-    }
-    
-    console.log('💥 [504 HANDLER] All methods failed for 504-byte data');
-    return {};
-    
-  } catch (error) {
-    console.error('💥 [504 HANDLER] Fatal error:', error.message);
-    return {};
-  }
-}
-
-
-// ==================== ULTIMATE DECRYPTION FUNCTION ====================
-function ultimateHBLDecrypt(encryptedData, privateKeyPem) {
-  console.log('\n🚀 [ULTIMATE] Starting ultimate decryption process...');
-  
-  // Method 0: Handle specific 504-byte issue first
-  console.log('🔄 [ULTIMATE] Checking for 504-byte data issue...');
-  const cleanData = encryptedData.replace(/\s+/g, '');
-  try {
-    const testDecode = forge.util.decode64(cleanData);
-    if (testDecode.length === 504) {
-      console.log('🎯 [ULTIMATE] Detected 504-byte data, using specialized handler...');
-      const result = handleSpecific504ByteData(encryptedData, privateKeyPem);
-      if (Object.keys(result).length > 0) {
-        console.log('✅ [ULTIMATE] 504-byte handler succeeded!');
-        return result;
+      
+      // Fallback: try different string encodings
+      const encodings = ['utf8', 'ascii', 'latin1'];
+      for (const encoding of encodings) {
+        try {
+          const testString = decrypted.toString(encoding);
+          const testParams = parseGarbledData(testString);
+          if (Object.keys(testParams).length > 0) {
+            console.log(`✅ [ENHANCED] Success with ${encoding} encoding`);
+            return testParams;
+          }
+        } catch (encodingError) {
+          // Continue to next encoding
+        }
       }
+      
+    } catch (cryptoError) {
+      console.log('❌ [ENHANCED] Node.js crypto failed:', cryptoError.message);
     }
-  } catch (e) {
-    // Continue to other methods
-  }
-  
-  // Method 1: Try specialized success handler
-  console.log('🔄 [ULTIMATE] Trying specialized success handler...');
-  let result = handleHBLSuccessData(encryptedData, privateKeyPem);
-  if (Object.keys(result).length > 0) {
-    console.log('✅ [ULTIMATE] Specialized success handler succeeded!');
-    return result;
-  }
-  
-  // Method 2: Enhanced forge approach
-  console.log('🔄 [ULTIMATE] Trying enhanced forge method...');
-  result = fixedDecryptHBLResponse(encryptedData, privateKeyPem);
-  if (Object.keys(result).length > 0) {
-    console.log('✅ [ULTIMATE] Enhanced forge method succeeded!');
-    return result;
-  }
-  
-  // Method 3: Node.js crypto approach
-  console.log('🔄 [ULTIMATE] Trying Node.js crypto method...');
-  result = alternativeNodeCryptoDecrypt(encryptedData, privateKeyPem);
-  if (Object.keys(result).length > 0) {
-    console.log('✅ [ULTIMATE] Node.js crypto method succeeded!');
-    return result;
-  }
-  
-  console.log('🔄 [ULTIMATE] All methods failed');
-  return {};
-}
-
-// ALSO ADD THIS TEMPORARY DEBUG HANDLER
-function debugSuccessCallback(encryptedData, privateKeyPem) {
-  console.log('\n🔍 [DEBUG] Analyzing success callback data...');
-  
-  const cleanData = encryptedData.replace(/\s+/g, '');
-  console.log('🔍 [DEBUG] Clean data length:', cleanData.length);
-  
-  try {
-    const decoded = forge.util.decode64(cleanData);
-    console.log('🔍 [DEBUG] Decoded length:', decoded.length);
-    console.log('🔍 [DEBUG] First 50 bytes as hex:', forge.util.bytesToHex(decoded.substring(0, 50)));
-    console.log('🔍 [DEBUG] Last 50 bytes as hex:', forge.util.bytesToHex(decoded.substring(-50)));
     
-    // Check if it matches any known patterns 
-    if (decoded.length === 504) {
-      console.log('🎯 [DEBUG] This is the problematic 504-byte success data');
-    } else if (decoded.length === 512) {
-      console.log('🎯 [DEBUG] This is standard 512-byte data');
-    } 
+    console.log('❌ [ENHANCED] All decryption methods failed');
+    return {};
     
   } catch (error) {
-    console.log('❌ [DEBUG] Base64 decode failed:', error.message);
+    console.error('💥 [ENHANCED] Fatal error:', error.message);
+    return {};
   }
 }
+
+
+
+
 
 // ==================== UPDATED SUCCESS HANDLER ====================
 module.exports.handlePaymentSuccess = asyncErrorHandler(async (req, res) => {
-  console.log('\n🎉 ========== ENHANCED PAYMENT SUCCESS CALLBACK ==========');
-  console.log('🔗 Full URL:', req.protocol + '://' + req.get('host') + req.originalUrl);
+  console.log('\n🎉 ========== PAYMENT SUCCESS CALLBACK ==========');
+  console.log('🔗 Full URL:', req.url);
   
   try {
-
-    const query = req.query || {};
-const body = req.body || {};
-const params = req.params || {};
-    // Get encrypted data with more sources
-    const encryptedData = query.data || body.data || params.data || 
-                     query.encryptedData || body.encryptedData;
-
-    if (!encryptedData) {
-      console.log('❌ No encrypted data found');
-      console.log('Available query params:', Object.keys(req.query));
-      console.log('Available body params:', req.body ? Object.keys(req.body) : 'none');
+    // Extract encrypted data from raw URL to avoid Express.js corruption
+    let encryptedData;
+    
+    if (req.url.includes('data=')) {
+      const rawUrl = req.url;
+      const dataStart = rawUrl.indexOf('data=') + 5;
+      const dataEnd = rawUrl.indexOf('&', dataStart);
+      encryptedData = dataEnd === -1 ? 
+        rawUrl.substring(dataStart) : 
+        rawUrl.substring(dataStart, dataEnd);
       
-      return res.status(400).json({
-        success: false,
-        error: 'No encrypted data found in request',
-        received: {
-          query: req.query,
-          body: req.body,
-          params: req.params
-        }
-      });
+      console.log('🔧 [SUCCESS] Extracted from raw URL:', encryptedData?.length, 'chars');
     }
     
-    console.log('📥 Encrypted data received:');
-    console.log('- Length:', encryptedData.length);
-    console.log('- Preview:', encryptedData.substring(0, 150));
-    console.log('- Has spaces:', encryptedData.includes(' '));
+    // Fallback to Express parsing
+    if (!encryptedData) {
+      encryptedData = req.query?.data || req.body?.data;
+    }
     
-    // Use the ultimate decryption method
-    const decryptedResponse = ultimateHBLDecrypt(encryptedData, privateKeyPem);
+    if (!encryptedData) {
+      console.log('❌ [SUCCESS] No encrypted data found');
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/failed?reason=missing_data`);
+    }
+    
+    console.log('📥 [SUCCESS] Processing encrypted data...');
+    
+    // Use enhanced decryption
+    const decryptedResponse = enhancedDecryption(encryptedData, privateKeyPem);
     
     if (!decryptedResponse || Object.keys(decryptedResponse).length === 0) {
-      console.log('💥 ALL DECRYPTION METHODS FAILED');
-      
-      // Return detailed error for debugging
-      return res.status(500).json({
-        success: false,
-        error: 'Decryption failed',
-        debug: {
-          dataLength: encryptedData.length,
-          dataPreview: encryptedData.substring(0, 200),
-          hasSpaces: encryptedData.includes(' '),
-          hasUrlEncoding: encryptedData.includes('%'),
-          privateKeyConfigured: !!privateKeyPem,
-          nodeForgeAvailable: !!forge
-        },
-        solution: 'Check the decryption logs above for specific error details'
-      });
+      console.log('💥 [SUCCESS] Decryption failed completely');
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/failed?reason=decrypt_failed`);
     }
     
-    console.log('🎊 DECRYPTION SUCCESSFUL!');
-    console.log('📋 Decrypted parameters:', decryptedResponse);
+    console.log('🎊 [SUCCESS] DECRYPTION SUCCESSFUL!');
+    console.log('📋 [SUCCESS] Decrypted parameters:', decryptedResponse);
     
-    // Continue with your existing payment processing logic...
+    // Check if payment was successful
     const responseCode = decryptedResponse.RESPONSE_CODE;
-    const isSuccess = ['0', '100', 0, 100, '00'].includes(responseCode) || 
-                     responseCode?.toString().toLowerCase() === 'success';   
+    const isSuccess = responseCode === '0' || responseCode === '100' || responseCode === 0 || responseCode === 100;
     
-    if (!isSuccess) {
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/failed?code=${responseCode}`);
-    }
+    console.log('🔍 [SUCCESS] Response code:', responseCode, 'Is success:', isSuccess);
     
-    // Process successful payment...
     const orderRefNumber = decryptedResponse.ORDER_REF_NUMBER || decryptedResponse.REFERENCE_NUMBER;
-    // ... rest of your success logic
     
-    return res.redirect(`${process.env.FRONTEND_URL}/payment/success?order=${orderRefNumber}`);
+    if (isSuccess && orderRefNumber) {
+      // Update payment and booking records
+      try {
+        const payment = await paymentModel.findOne({ orderRefNumber });
+        if (payment) {
+          await payment.updateOne({
+            status: 'completed',
+            completedAt: new Date(),
+            gatewayResponse: decryptedResponse,
+            transactionId: decryptedResponse.TRANSACTION_ID || decryptedResponse.TXN_ID,
+            updatedAt: new Date()
+          });
+          
+          if (payment.bookingId) {
+            await bookingModel.findByIdAndUpdate(payment.bookingId, {
+              paymentStatus: 'paid',
+              status: 'confirmed',
+              confirmedAt: new Date(),
+              updatedAt: new Date()
+            });
+          }
+          
+          console.log('✅ [SUCCESS] Database records updated');
+        }
+      } catch (dbError) {
+        console.error('❌ [SUCCESS] Database update failed:', dbError.message);
+      }
+      
+      // Redirect to success page
+      const successParams = new URLSearchParams({
+        status: 'success',
+        order: orderRefNumber,
+        amount: decryptedResponse.AMOUNT || '0',
+        transactionId: decryptedResponse.TRANSACTION_ID || decryptedResponse.TXN_ID || ''
+      });
+      
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/success?${successParams}`);
+      
+    } else {
+      // Payment failed
+      const message = decryptedResponse.RESPONSE_MESSAGE || 'Payment failed';
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/failed?code=${responseCode}&message=${encodeURIComponent(message)}`);
+    }
     
   } catch (error) {
-    console.error('💥 Payment success handler error:', error);
-    return res.status(500).json({
-      success: false,
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
+    console.error('💥 [SUCCESS] Handler error:', error);
+    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/failed?reason=server_error`);
   }
 });
 
 // ==================== ENHANCED PAYMENT CANCEL HANDLER ====================
 module.exports.handlePaymentCancel = asyncErrorHandler(async (req, res) => {
-  const requestId = crypto.randomUUID();
-  
   console.log('\n🚫 ========== PAYMENT CANCEL CALLBACK ==========');
-  console.log(`🆔 Request ID: ${requestId}`);
-  console.log('📨 Request Method:', req.method);
-  console.log('📨 Request URL:', req.url);
-  console.log('📨 Query Parameters:', req.query);
-  console.log('📨 Body Parameters:', req.body);
   
   try {
-
-    const query = req.query || {};
-const body = req.body || {};
-const params = req.params || {};
-
-    // Get encrypted data from multiple sources
-    const encryptedData = query.data || body.data || params.data || 
-                     query.encryptedData || body.encryptedData;
-
+    // Extract encrypted data
+    let encryptedData;
+    
+    if (req.url.includes('data=')) {
+      const rawUrl = req.url;
+      const dataStart = rawUrl.indexOf('data=') + 5;
+      const dataEnd = rawUrl.indexOf('&', dataStart);
+      encryptedData = dataEnd === -1 ? 
+        rawUrl.substring(dataStart) : 
+        rawUrl.substring(dataStart, dataEnd);
+    }
+    
     if (!encryptedData) {
-      console.log('❌ No encrypted data received');
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?reason=missing_data&timestamp=${Date.now()}`);
+      encryptedData = req.query?.data || req.body?.data;
     }
     
-    console.log('📝 Encrypted data received, length:', encryptedData.length);
-    
-    if (!privateKeyPem) {
-      console.log('❌ Private key not configured');
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?reason=config_error&timestamp=${Date.now()}`);
-    }
-    
-    // DECRYPT THE RESPONSE
-    console.log('🔐 Starting decryption...');
-    const decryptedResponse = fixedDecryptHBLResponse(encryptedData, privateKeyPem);
-    
-    if (!decryptedResponse || Object.keys(decryptedResponse).length === 0) {
-      console.log('❌ Decryption failed or empty result');
-      return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?reason=decrypt_failed&timestamp=${Date.now()}`);
-    }
-    
-    // LOG ALL CANCEL DATA TO CONSOLE
-    console.log('\n📋 ========== DECRYPTED CANCEL RESPONSE ==========');
-    Object.entries(decryptedResponse).forEach(([key, value]) => {
-      console.log(`${key}:`, value);
-    });
-    console.log('===============================================\n');
-    
-    // Find and update payment record
-    let payment = null;
-    const searchStrategies = [
-      { sessionId: decryptedResponse.SESSION_ID },
-      { orderRefNumber: decryptedResponse.ORDER_REF_NUMBER },
-      { orderId: decryptedResponse.ORDER_REF_NUMBER },
-      { transactionId: decryptedResponse.SESSION_ID }
-    ].filter(strategy => Object.values(strategy)[0]); // Remove empty values
-    
-    for (const strategy of searchStrategies) {
-      try {
-        payment = await paymentModel.findOne(strategy);
-        if (payment) break;
-      } catch (error) {
-        console.warn('Search strategy failed:', strategy, error.message);
+    if (encryptedData) {
+      const decryptedResponse = enhancedDecryption(encryptedData, privateKeyPem);
+      
+      if (decryptedResponse && Object.keys(decryptedResponse).length > 0) {
+        const orderRefNumber = decryptedResponse.ORDER_REF_NUMBER;
+        
+        if (orderRefNumber) {
+          const payment = await paymentModel.findOne({ orderRefNumber });
+          if (payment) {
+            await payment.updateOne({
+              status: 'cancelled',
+              cancelledAt: new Date(),
+              gatewayResponse: decryptedResponse
+            });
+          }
+        }
       }
     }
     
-    if (payment) {
-      await payment.updateOne({
-        status: 'cancelled',
-        responseCode: decryptedResponse.RESPONSE_CODE,
-        responseMessage: decryptedResponse.RESPONSE_MESSAGE,
-        cancelledAt: new Date(),
-        updatedAt: new Date(),
-        hblResponse: decryptedResponse
-      });
-      
-      console.log('💾 Payment record updated to cancelled');
-    }
-    
-    console.log('🚫 PAYMENT CANCELLED!');
-    
-    // Create cancel URL with proper parameters
-    const cancelParams = new URLSearchParams({
-      status: 'cancelled',
-      code: decryptedResponse.RESPONSE_CODE || 'user_cancelled',
-      message: encodeURIComponent(decryptedResponse.RESPONSE_MESSAGE || 'Payment cancelled by user'),
-      ref: decryptedResponse.ORDER_REF_NUMBER || 'unknown',
-      timestamp: Date.now()
-    });
-    
-    const cancelUrl = `${process.env.FRONTEND_URL}/payment/cancel?${cancelParams.toString()}`;
-    console.log('🚫 Redirecting to cancel page:', cancelUrl);
-    
-    return res.redirect(cancelUrl);
+    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/cancelled`);
     
   } catch (error) {
-    console.error('❌ Payment cancel handler error:', error);
-    return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?reason=server_error&timestamp=${Date.now()}`);
+    console.error('💥 [CANCEL] Handler error:', error);
+    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/cancelled`);
   }
 });
+
+// ==================== MANUAL DECRYPT (UPDATED) ====================
+module.exports.manualDecrypt = async (req, res) => {
+  try {
+    const { encryptedData } = req.body;
+    
+    if (!encryptedData) {
+      return res.json({
+        success: false,
+        error: 'No encrypted data provided'
+      });
+    }
+    
+    const result = enhancedDecryption(encryptedData, privateKeyPem);
+    
+    return res.json({
+      success: true,
+      message: 'Enhanced decryption completed',
+      result: {
+        success: Object.keys(result).length > 0,
+        data: result,
+        keys: Object.keys(result)
+      }
+    });
+    
+  } catch (error) {
+    return res.json({
+      success: false,
+      error: error.message
+    });
+  }
+};
 
 // ==================== EXISTING FUNCTIONS (KEEP AS IS) ====================
 
