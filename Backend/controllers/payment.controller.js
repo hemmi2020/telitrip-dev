@@ -646,7 +646,7 @@ const params = req.params || {};
     // Continue with your existing payment processing logic...
     const responseCode = decryptedResponse.RESPONSE_CODE;
     const isSuccess = ['0', '100', 0, 100, '00'].includes(responseCode) || 
-                     responseCode?.toString().toLowerCase() === 'success';
+                     responseCode?.toString().toLowerCase() === 'success';   
     
     if (!isSuccess) {
       return res.redirect(`${process.env.FRONTEND_URL}/payment/failed?code=${responseCode}`);
