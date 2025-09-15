@@ -56,7 +56,7 @@ function fixedDecryptHBLResponse(encryptedData, privateKeyPem) {
       return {};
     }
     
-    // STEP 1: AGGRESSIVE DATA CLEANING (Your data has spaces!)
+    // STEP 1: AGGRESSIVE DATA CLEANING 
     console.log('🧹 [FIXED DECRYPT] Cleaning data...');
     let cleanData = encryptedData;
     
@@ -74,18 +74,16 @@ function fixedDecryptHBLResponse(encryptedData, privateKeyPem) {
     console.log('🔑 [FIXED DECRYPT] Loading private key...');
     const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
     const keySize = privateKey.n.bitLength();
-    const blockSize = keySize / 8; // This should be 256 for 2048-bit key, not 512!
+    const maxBlockSize = keySize / 8; // 512 for 4096-bit key
     
     console.log('🔍 [FIXED DECRYPT] Key details:');
     console.log('- Key size:', keySize, 'bits');
-    console.log('- Block size:', blockSize, 'bytes');
-    console.log('- Expected block size for RSA-2048:', keySize === 2048 ? '256 bytes' : `${blockSize} bytes`);
+    console.log('- Max block size:', maxBlockSize, 'bytes');
     
     // STEP 3: BASE64 DECODE WITH ERROR HANDLING
     console.log('📦 [FIXED DECRYPT] Base64 decoding...');
     let binaryData;
     try {
-      // Use forge's base64 decoder (more reliable)
       binaryData = forge.util.decode64(cleanData);
       console.log('✅ [FIXED DECRYPT] Forge base64 decode successful:', binaryData.length, 'bytes');
     } catch (error) {
@@ -100,99 +98,146 @@ function fixedDecryptHBLResponse(encryptedData, privateKeyPem) {
       }
     }
     
-    // STEP 4: VERIFY DATA LENGTH IS MULTIPLE OF BLOCK SIZE
-    console.log('🔍 [FIXED DECRYPT] Data verification:');
+    // STEP 4: HANDLE DIFFERENT DATA LENGTHS - THIS IS THE KEY FIX!
+    console.log('🔍 [FIXED DECRYPT] Data length analysis:');
     console.log('- Binary data length:', binaryData.length);
-    console.log('- Block size:', blockSize);
-    console.log('- Is multiple of block size:', binaryData.length % blockSize === 0);
-    console.log('- Number of blocks:', Math.ceil(binaryData.length / blockSize));
+    console.log('- Max block size:', maxBlockSize);
+    console.log('- Is exact match:', binaryData.length === maxBlockSize);
     
-    if (binaryData.length % blockSize !== 0) {
-      console.log('⚠️ [FIXED DECRYPT] Data length not multiple of block size - this might cause issues');
-    }
-    
-    // STEP 5: DECRYPT USING CORRECT BLOCK SIZE
-    console.log('🔓 [FIXED DECRYPT] Starting block decryption...');
     let decryptedData = '';
-    const totalBlocks = Math.ceil(binaryData.length / blockSize);
     
-    for (let i = 0; i < binaryData.length; i += blockSize) {
-      const block = binaryData.substring(i, i + blockSize);
-      const blockNum = Math.floor(i / blockSize) + 1;
+    // METHOD 1: Try direct decryption if data length <= maxBlockSize
+    if (binaryData.length <= maxBlockSize) {
+      console.log('🔓 [FIXED DECRYPT] Trying direct decryption (single block)...');
       
-      console.log(`🔍 [FIXED DECRYPT] Block ${blockNum}/${totalBlocks}: ${block.length} bytes`);
+      const decryptionMethods = [
+        { name: 'RSAES-PKCS1-V1_5', method: 'RSAES-PKCS1-V1_5' },
+        { name: 'RSA-OAEP', method: 'RSA-OAEP' },
+        { name: 'Raw (no padding)', method: null }
+      ];
       
-      // Try multiple decryption methods for each block
-      let blockDecrypted = false;
-      
-      // Method 1: RSAES-PKCS1-V1_5 (most common for HBL)
-      try {
-        const result = privateKey.decrypt(block, 'RSAES-PKCS1-V1_5');
-        decryptedData += result;
-        console.log(`✅ [FIXED DECRYPT] Block ${blockNum} PKCS1: "${result}"`);
-        blockDecrypted = true;
-      } catch (pkcs1Error) {
-        console.log(`❌ [FIXED DECRYPT] Block ${blockNum} PKCS1 failed:`, pkcs1Error.message);
-      }
-      
-      // Method 2: RSA-OAEP (if PKCS1 fails)
-      if (!blockDecrypted) {
+      for (const { name, method } of decryptionMethods) {
         try {
-          const result = privateKey.decrypt(block, 'RSA-OAEP');
-          decryptedData += result;
-          console.log(`✅ [FIXED DECRYPT] Block ${blockNum} OAEP: "${result}"`);
-          blockDecrypted = true;
-        } catch (oaepError) {
-          console.log(`❌ [FIXED DECRYPT] Block ${blockNum} OAEP failed:`, oaepError.message);
+          console.log(`🔄 [FIXED DECRYPT] Trying ${name}...`);
+          const result = method ? privateKey.decrypt(binaryData, method) : privateKey.decrypt(binaryData);
+          
+          if (result && result.length > 0) {
+            decryptedData = result;
+            console.log(`✅ [FIXED DECRYPT] ${name} succeeded: "${result}"`);
+            break;
+          }
+        } catch (error) {
+          console.log(`❌ [FIXED DECRYPT] ${name} failed:`, error.message);
         }
-      }
-      
-      // Method 3: Raw RSA (no padding)
-      if (!blockDecrypted) {
-        try {
-          const result = privateKey.decrypt(block);
-          decryptedData += result;
-          console.log(`✅ [FIXED DECRYPT] Block ${blockNum} Raw: "${result}"`);
-          blockDecrypted = true;
-        } catch (rawError) {
-          console.log(`❌ [FIXED DECRYPT] Block ${blockNum} Raw failed:`, rawError.message);
-        }
-      }
-      
-      if (!blockDecrypted) {
-        console.error(`💥 [FIXED DECRYPT] Block ${blockNum} COMPLETELY FAILED - all methods exhausted`);
-        // Don't return here, continue with other blocks
       }
     }
     
-    console.log('📄 [FIXED DECRYPT] Total decrypted length:', decryptedData.length);
-    console.log('📄 [FIXED DECRYPT] Decrypted content:', decryptedData);
-    
-    // STEP 6: PARSE THE DECRYPTED DATA
-    const params = {};
-    if (decryptedData.length > 0) {
-      // HBL typically returns URL-encoded parameters
-      if (decryptedData.includes('=') && decryptedData.includes('&')) {
-        const pairs = decryptedData.split('&');
-        console.log(`📝 [FIXED DECRYPT] Parsing ${pairs.length} parameters`);
+    // METHOD 2: If single block failed, try block processing
+    if (!decryptedData && binaryData.length > maxBlockSize) {
+      console.log('🔓 [FIXED DECRYPT] Trying multi-block decryption...');
+      
+      const totalBlocks = Math.ceil(binaryData.length / maxBlockSize);
+      console.log(`📊 [FIXED DECRYPT] Processing ${totalBlocks} blocks`);
+      
+      for (let i = 0; i < binaryData.length; i += maxBlockSize) {
+        const block = binaryData.substring(i, i + maxBlockSize);
+        const blockNum = Math.floor(i / maxBlockSize) + 1;
         
-        pairs.forEach((pair, index) => {
-          if (pair.includes('=')) {
-            const [key, ...valueParts] = pair.split('=');
-            const value = valueParts.join('='); // Handle values with = in them
-            if (key && value !== undefined) {
-              try {
-                params[key.trim()] = decodeURIComponent(value);
-                console.log(`📝 [FIXED DECRYPT] ${index + 1}. ${key} = ${value}`);
-              } catch (decodeError) {
-                params[key.trim()] = value; // Use raw value if decode fails
-                console.log(`📝 [FIXED DECRYPT] ${index + 1}. ${key} = ${value} (raw)`);
-              }
+        console.log(`🔍 [FIXED DECRYPT] Block ${blockNum}/${totalBlocks}: ${block.length} bytes`);
+        
+        try {
+          const result = privateKey.decrypt(block, 'RSAES-PKCS1-V1_5');
+          decryptedData += result;
+          console.log(`✅ [FIXED DECRYPT] Block ${blockNum} decrypted: "${result}"`);
+        } catch (error) {
+          console.log(`❌ [FIXED DECRYPT] Block ${blockNum} failed:`, error.message);
+        }
+      }
+    }
+    
+    // METHOD 3: Try alternative approaches for problematic data
+    if (!decryptedData) {
+      console.log('🔄 [FIXED DECRYPT] Trying alternative padding approaches...');
+      
+      // Try padding the data to block size
+      if (binaryData.length < maxBlockSize) {
+        console.log('🔧 [FIXED DECRYPT] Data too short, trying with padding...');
+        
+        // Pad with zeros to block size
+        const paddedData = binaryData + '\0'.repeat(maxBlockSize - binaryData.length);
+        
+        try {
+          const result = privateKey.decrypt(paddedData, 'RSAES-PKCS1-V1_5');
+          if (result && result.length > 0) {
+            decryptedData = result.replace(/\0+$/, ''); // Remove trailing nulls
+            console.log('✅ [FIXED DECRYPT] Padded decryption succeeded:', decryptedData);
+          }
+        } catch (error) {
+          console.log('❌ [FIXED DECRYPT] Padded decryption failed:', error.message);
+        }
+      }
+      
+      // Try treating as different encoding
+      if (!decryptedData) {
+        console.log('🔧 [FIXED DECRYPT] Trying hex decoding...');
+        try {
+          if (cleanData.match(/^[0-9a-fA-F]+$/)) {
+            const hexDecoded = forge.util.hexToBytes(cleanData);
+            const result = privateKey.decrypt(hexDecoded, 'RSAES-PKCS1-V1_5');
+            if (result && result.length > 0) {
+              decryptedData = result;
+              console.log('✅ [FIXED DECRYPT] Hex decoding succeeded:', decryptedData);
             }
           }
-        });
-      } else {
-        console.log('📝 [FIXED DECRYPT] Not standard parameters, storing as raw data');
+        } catch (error) {
+          console.log('❌ [FIXED DECRYPT] Hex decoding failed:', error.message);
+        }
+      }
+    }
+    
+    console.log('📄 [FIXED DECRYPT] Final decrypted length:', decryptedData.length);
+    console.log('📄 [FIXED DECRYPT] Final decrypted content:', decryptedData);
+    
+    // STEP 5: PARSE THE DECRYPTED DATA
+    const params = {};
+    if (decryptedData.length > 0) {
+      try {
+        // HBL typically returns URL-encoded parameters
+        if (decryptedData.includes('=') && decryptedData.includes('&')) {
+          const pairs = decryptedData.split('&');
+          console.log(`📝 [FIXED DECRYPT] Parsing ${pairs.length} parameters`);
+          
+          pairs.forEach((pair, index) => {
+            if (pair.includes('=')) {
+              const [key, ...valueParts] = pair.split('=');
+              const value = valueParts.join('='); // Handle values with = in them
+              if (key && value !== undefined) {
+                try {
+                  params[key.trim()] = decodeURIComponent(value);
+                  console.log(`📝 [FIXED DECRYPT] ${index + 1}. ${key} = ${value}`);
+                } catch (decodeError) {
+                  params[key.trim()] = value; // Use raw value if decode fails
+                  console.log(`📝 [FIXED DECRYPT] ${index + 1}. ${key} = ${value} (raw)`);
+                }
+              }
+            }
+          });
+        } else if (decryptedData.startsWith('{') && decryptedData.endsWith('}')) {
+          // Try JSON parsing
+          try {
+            const jsonData = JSON.parse(decryptedData);
+            Object.assign(params, jsonData);
+            console.log('📝 [FIXED DECRYPT] Parsed as JSON');
+          } catch (jsonError) {
+            console.log('📝 [FIXED DECRYPT] JSON parsing failed, treating as raw data');
+            params.RAW_DATA = decryptedData;
+          }
+        } else {
+          console.log('📝 [FIXED DECRYPT] Unknown format, storing as raw data');
+          params.RAW_DATA = decryptedData;
+        }
+      } catch (parseError) {
+        console.error('❌ [FIXED DECRYPT] Parsing failed:', parseError.message);
         params.RAW_DATA = decryptedData;
       }
     }
@@ -206,6 +251,66 @@ function fixedDecryptHBLResponse(encryptedData, privateKeyPem) {
     return {};
   }
 }
+
+// ALSO ADD THIS SPECIALIZED SUCCESS DATA HANDLER
+function handleHBLSuccessData(encryptedData, privateKeyPem) {
+  try {
+    console.log('\n🎯 [SUCCESS HANDLER] Specialized success data decryption...');
+    
+    if (!forge || !privateKeyPem || !encryptedData) {
+      return {};
+    }
+    
+    // Clean the data
+    const cleanData = encryptedData.replace(/\s+/g, '');
+    console.log('📝 [SUCCESS HANDLER] Cleaned data length:', cleanData.length);
+    
+    // Load private key
+    const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
+    
+    // Base64 decode
+    const binaryData = forge.util.decode64(cleanData);
+    console.log('📦 [SUCCESS HANDLER] Decoded to', binaryData.length, 'bytes');
+    
+    // Success data is typically shorter than block size - try direct decryption
+    const decryptionAttempts = [
+      () => privateKey.decrypt(binaryData, 'RSAES-PKCS1-V1_5'),
+      () => privateKey.decrypt(binaryData, 'RSA-OAEP'), 
+      () => privateKey.decrypt(binaryData) // Raw
+    ];
+    
+    for (let i = 0; i < decryptionAttempts.length; i++) {
+      try {
+        const result = decryptionAttempts[i]();
+        if (result && result.length > 0 && result.includes('RESPONSE_CODE')) {
+          console.log(`✅ [SUCCESS HANDLER] Method ${i + 1} worked:`, result);
+          
+          // Parse the result
+          const params = {};
+          const pairs = result.split('&');
+          pairs.forEach(pair => {
+            if (pair.includes('=')) {
+              const [key, ...valueParts] = pair.split('=');
+              const value = valueParts.join('=');
+              params[key.trim()] = decodeURIComponent(value || '');
+            }
+          });
+          
+          return params;
+        }
+      } catch (error) {
+        console.log(`❌ [SUCCESS HANDLER] Method ${i + 1} failed:`, error.message);
+      }
+    }
+    
+    return {};
+    
+  } catch (error) {
+    console.error('💥 [SUCCESS HANDLER] Error:', error.message);
+    return {};
+  }
+}
+
 
 
 // ==================== ALTERNATIVE: NODE.JS CRYPTO APPROACH ====================
@@ -305,7 +410,36 @@ function ultimateHBLDecrypt(encryptedData, privateKeyPem) {
   
   return {};
 }
-
+function ultimateHBLDecrypt(encryptedData, privateKeyPem) {
+  console.log('\n🚀 [ULTIMATE] Starting ultimate decryption process...');
+  
+  // Method 1: Try specialized success handler first
+  console.log('🔄 [ULTIMATE] Trying specialized success handler...');
+  let result = handleHBLSuccessData(encryptedData, privateKeyPem);
+  if (Object.keys(result).length > 0) {
+    console.log('✅ [ULTIMATE] Specialized success handler succeeded!');
+    return result;
+  }
+  
+  // Method 2: Fixed forge approach
+  console.log('🔄 [ULTIMATE] Trying enhanced forge method...');
+  result = fixedDecryptHBLResponse(encryptedData, privateKeyPem);
+  if (Object.keys(result).length > 0) {
+    console.log('✅ [ULTIMATE] Enhanced forge method succeeded!');
+    return result;
+  }
+  
+  // Method 3: Node.js crypto approach
+  console.log('🔄 [ULTIMATE] Trying Node.js crypto method...');
+  result = alternativeNodeCryptoDecrypt(encryptedData, privateKeyPem);
+  if (Object.keys(result).length > 0) {
+    console.log('✅ [ULTIMATE] Node.js crypto method succeeded!');
+    return result;
+  }
+  
+  console.log('🔄 [ULTIMATE] All methods failed');
+  return {};
+}
 
 // ==================== UPDATED SUCCESS HANDLER ====================
 module.exports.handlePaymentSuccess = asyncErrorHandler(async (req, res) => {
