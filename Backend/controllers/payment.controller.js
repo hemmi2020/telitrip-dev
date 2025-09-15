@@ -377,43 +377,160 @@ function alternativeNodeCryptoDecrypt(encryptedData, privateKeyPem) {
 }
 
 
+
+function handleSpecific504ByteData(encryptedData, privateKeyPem) {
+  try {
+    console.log('\n🎯 [504 HANDLER] Handling 504-byte success data...');
+    
+    if (!forge || !privateKeyPem || !encryptedData) {
+      return {};
+    }
+    
+    // Clean and decode
+    const cleanData = encryptedData.replace(/\s+/g, '');
+    const binaryData = forge.util.decode64(cleanData);
+    
+    console.log('📦 [504 HANDLER] Binary length:', binaryData.length);
+    
+    if (binaryData.length !== 504) {
+      console.log('❌ [504 HANDLER] Not 504 bytes, skipping');
+      return {};
+    }
+    
+    // Load private key
+    const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
+    
+    // Method 1: Try padding to 512 bytes with different padding patterns
+    const paddingAttempts = [
+      () => binaryData + '\x00'.repeat(8), // Null padding
+      () => binaryData + '\xFF'.repeat(8), // 0xFF padding  
+      () => binaryData + '\x01'.repeat(8), // 0x01 padding
+      () => '\x00'.repeat(8) + binaryData, // Prepend nulls
+      () => binaryData + '\x00\x00\x00\x00\x00\x00\x00\x08', // PKCS7-style
+    ];
+    
+    for (let i = 0; i < paddingAttempts.length; i++) {
+      try {
+        console.log(`🔄 [504 HANDLER] Trying padding method ${i + 1}...`);
+        const paddedData = paddingAttempts[i]();
+        
+        // Try different decryption methods
+        const decryptMethods = [
+          () => privateKey.decrypt(paddedData, 'RSAES-PKCS1-V1_5'),
+          () => privateKey.decrypt(paddedData, 'RSA-OAEP'),
+          () => privateKey.decrypt(paddedData)
+        ];
+        
+        for (let j = 0; j < decryptMethods.length; j++) {
+          try {
+            const result = decryptMethods[j]();
+            if (result && result.length > 0 && result.includes('RESPONSE_CODE')) {
+              console.log(`✅ [504 HANDLER] Success with padding ${i + 1}, method ${j + 1}:`, result);
+              
+              // Parse result
+              const params = {};
+              result.split('&').forEach(pair => {
+                if (pair.includes('=')) {
+                  const [key, ...valueParts] = pair.split('=');
+                  params[key.trim()] = decodeURIComponent(valueParts.join('=') || '');
+                }
+              });
+              return params;
+            }
+          } catch (decryptError) {
+            // Continue to next method
+          }
+        }
+      } catch (paddingError) {
+        // Continue to next padding attempt
+      }
+    }
+    
+    // Method 2: Try treating as multi-block with 504+8 split
+    try {
+      console.log('🔄 [504 HANDLER] Trying 504+8 block split...');
+      const block1 = binaryData.substring(0, 496);
+      const block2 = binaryData.substring(496);
+      
+      const result1 = privateKey.decrypt(block1, 'RSAES-PKCS1-V1_5');
+      const result2 = privateKey.decrypt(block2, 'RSAES-PKCS1-V1_5');
+      const combined = result1 + result2;
+      
+      if (combined.includes('RESPONSE_CODE')) {
+        console.log('✅ [504 HANDLER] Multi-block success:', combined);
+        const params = {};
+        combined.split('&').forEach(pair => {
+          if (pair.includes('=')) {
+            const [key, ...valueParts] = pair.split('=');
+            params[key.trim()] = decodeURIComponent(valueParts.join('=') || '');
+          }
+        });
+        return params;
+      }
+    } catch (multiError) {
+      console.log('❌ [504 HANDLER] Multi-block failed:', multiError.message);
+    }
+    
+    // Method 3: Try direct Node.js crypto with different approaches
+    try {
+      console.log('🔄 [504 HANDLER] Trying Node.js crypto with raw data...');
+      const buffer = Buffer.from(binaryData, 'binary');
+      
+      // Try with RSA_NO_PADDING first
+      const decrypted = crypto.privateDecrypt({
+        key: privateKeyPem,
+        padding: crypto.constants.RSA_NO_PADDING
+      }, buffer);
+      
+      // Look for readable data in the result
+      const decryptedStr = decrypted.toString('utf8').replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+      if (decryptedStr.includes('RESPONSE_CODE')) {
+        console.log('✅ [504 HANDLER] Node.js raw decryption success:', decryptedStr);
+        const params = {};
+        decryptedStr.split('&').forEach(pair => {
+          if (pair.includes('=')) {
+            const [key, ...valueParts] = pair.split('=');
+            params[key.trim()] = decodeURIComponent(valueParts.join('=') || '');
+          }
+        });
+        return params;
+      }
+    } catch (nodeError) {
+      console.log('❌ [504 HANDLER] Node.js crypto failed:', nodeError.message);
+    }
+    
+    console.log('💥 [504 HANDLER] All methods failed for 504-byte data');
+    return {};
+    
+  } catch (error) {
+    console.error('💥 [504 HANDLER] Fatal error:', error.message);
+    return {};
+  }
+}
+
+
 // ==================== ULTIMATE DECRYPTION FUNCTION ====================
 function ultimateHBLDecrypt(encryptedData, privateKeyPem) {
   console.log('\n🚀 [ULTIMATE] Starting ultimate decryption process...');
   
-  // Method 1: Fixed forge approach
-  console.log('🔄 [ULTIMATE] Trying fixed forge method...');
-  let result = fixedDecryptHBLResponse(encryptedData, privateKeyPem);
-  if (Object.keys(result).length > 0) {
-    console.log('✅ [ULTIMATE] Fixed forge method succeeded!');
-    return result;
+  // Method 0: Handle specific 504-byte issue first
+  console.log('🔄 [ULTIMATE] Checking for 504-byte data issue...');
+  const cleanData = encryptedData.replace(/\s+/g, '');
+  try {
+    const testDecode = forge.util.decode64(cleanData);
+    if (testDecode.length === 504) {
+      console.log('🎯 [ULTIMATE] Detected 504-byte data, using specialized handler...');
+      const result = handleSpecific504ByteData(encryptedData, privateKeyPem);
+      if (Object.keys(result).length > 0) {
+        console.log('✅ [ULTIMATE] 504-byte handler succeeded!');
+        return result;
+      }
+    }
+  } catch (e) {
+    // Continue to other methods
   }
   
-  // Method 2: Node.js crypto approach
-  console.log('🔄 [ULTIMATE] Trying Node.js crypto method...');
-  result = alternativeNodeCryptoDecrypt(encryptedData, privateKeyPem);
-  if (Object.keys(result).length > 0) {
-    console.log('✅ [ULTIMATE] Node.js crypto method succeeded!');
-    return result;
-  }
-  
-  // Method 3: Try with different key formats (if applicable)
-  console.log('🔄 [ULTIMATE] All methods failed, checking key format...');
-  
-  // Log detailed diagnostics
-  console.log('🔍 [ULTIMATE] Diagnostics:');
-  console.log('- Input data length:', encryptedData?.length);
-  console.log('- Has spaces:', encryptedData?.includes(' '));
-  console.log('- Has URL encoding:', encryptedData?.includes('%'));
-  console.log('- Private key length:', privateKeyPem?.length);
-  console.log('- Private key starts with:', privateKeyPem?.substring(0, 50));
-  
-  return {};
-}
-function ultimateHBLDecrypt(encryptedData, privateKeyPem) {
-  console.log('\n🚀 [ULTIMATE] Starting ultimate decryption process...');
-  
-  // Method 1: Try specialized success handler first
+  // Method 1: Try specialized success handler
   console.log('🔄 [ULTIMATE] Trying specialized success handler...');
   let result = handleHBLSuccessData(encryptedData, privateKeyPem);
   if (Object.keys(result).length > 0) {
@@ -421,7 +538,7 @@ function ultimateHBLDecrypt(encryptedData, privateKeyPem) {
     return result;
   }
   
-  // Method 2: Fixed forge approach
+  // Method 2: Enhanced forge approach
   console.log('🔄 [ULTIMATE] Trying enhanced forge method...');
   result = fixedDecryptHBLResponse(encryptedData, privateKeyPem);
   if (Object.keys(result).length > 0) {
@@ -439,6 +556,31 @@ function ultimateHBLDecrypt(encryptedData, privateKeyPem) {
   
   console.log('🔄 [ULTIMATE] All methods failed');
   return {};
+}
+
+// ALSO ADD THIS TEMPORARY DEBUG HANDLER
+function debugSuccessCallback(encryptedData, privateKeyPem) {
+  console.log('\n🔍 [DEBUG] Analyzing success callback data...');
+  
+  const cleanData = encryptedData.replace(/\s+/g, '');
+  console.log('🔍 [DEBUG] Clean data length:', cleanData.length);
+  
+  try {
+    const decoded = forge.util.decode64(cleanData);
+    console.log('🔍 [DEBUG] Decoded length:', decoded.length);
+    console.log('🔍 [DEBUG] First 50 bytes as hex:', forge.util.bytesToHex(decoded.substring(0, 50)));
+    console.log('🔍 [DEBUG] Last 50 bytes as hex:', forge.util.bytesToHex(decoded.substring(-50)));
+    
+    // Check if it matches any known patterns 
+    if (decoded.length === 504) {
+      console.log('🎯 [DEBUG] This is the problematic 504-byte success data');
+    } else if (decoded.length === 512) {
+      console.log('🎯 [DEBUG] This is standard 512-byte data');
+    } 
+    
+  } catch (error) {
+    console.log('❌ [DEBUG] Base64 decode failed:', error.message);
+  }
 }
 
 // ==================== UPDATED SUCCESS HANDLER ====================
