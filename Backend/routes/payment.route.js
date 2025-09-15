@@ -246,8 +246,8 @@ router.post('/success', paymentController.handlePaymentSuccess);
 // // Webhook route for HBLPay notifications
 // router.post('/webhook', paymentController.handleWebhook);
 
-// // Health check route for payment gateway
-// router.get('/health', paymentController.healthCheck); 
+// Health check route for payment gateway
+router.get('/health', paymentController.healthCheck); 
 
 // ==================== DEVELOPMENT/TEST ROUTES ====================
 

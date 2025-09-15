@@ -313,10 +313,14 @@ module.exports.handlePaymentSuccess = asyncErrorHandler(async (req, res) => {
   console.log('🔗 Full URL:', req.protocol + '://' + req.get('host') + req.originalUrl);
   
   try {
+
+    const query = req.query || {};
+const body = req.body || {};
+const params = req.params || {};
     // Get encrypted data with more sources
-    const encryptedData = req.query.data || req.body.data || req.params.data || 
-                         req.query.encryptedData || req.body.encryptedData;
-    
+    const encryptedData = query.data || body.data || params.data || 
+                     query.encryptedData || body.encryptedData;
+
     if (!encryptedData) {
       console.log('❌ No encrypted data found');
       console.log('Available query params:', Object.keys(req.query));
@@ -400,9 +404,15 @@ module.exports.handlePaymentCancel = asyncErrorHandler(async (req, res) => {
   console.log('📨 Body Parameters:', req.body);
   
   try {
+
+    const query = req.query || {};
+const body = req.body || {};
+const params = req.params || {};
+
     // Get encrypted data from multiple sources
-    const encryptedData = req.query.data || req.body.data || req.params.data;
-    
+    const encryptedData = query.data || body.data || params.data || 
+                     query.encryptedData || body.encryptedData;
+
     if (!encryptedData) {
       console.log('❌ No encrypted data received');
       return res.redirect(`${process.env.FRONTEND_URL}/payment/cancel?reason=missing_data&timestamp=${Date.now()}`);
@@ -417,7 +427,7 @@ module.exports.handlePaymentCancel = asyncErrorHandler(async (req, res) => {
     
     // DECRYPT THE RESPONSE
     console.log('🔐 Starting decryption...');
-    const decryptedResponse = decryptHBLResponse(encryptedData, privateKeyPem);
+    const decryptedResponse = fixedDecryptHBLResponse(encryptedData, privateKeyPem);
     
     if (!decryptedResponse || Object.keys(decryptedResponse).length === 0) {
       console.log('❌ Decryption failed or empty result');
@@ -951,8 +961,8 @@ module.exports.testDecryption = (req, res) => {
     }
 
     // Test decryption with provided data
-    const decryptResult1 = decryptHBLResponse(testData, privateKeyPem);
-    const decryptResult2 = decryptHBLResponseWithNodeCrypto(testData, privateKeyPem);
+    const decryptResult1 = fixedDecryptHBLResponse(testData, privateKeyPem);
+    const decryptResult2 = alternativeNodeCryptoDecrypt(testData, privateKeyPem);
     
     console.log('🎯 Decryption test completed!');
     
@@ -1001,15 +1011,15 @@ module.exports.manualDecrypt = async (req, res) => {
   try {
     const { encryptedData, method } = req.body;
     
-    if (!encryptedData) {
+    if (!encryptedData) { 
       return res.json({
-        success: false,
+        success: false, 
         error: 'No encrypted data provided',
         usage: 'POST /api/payments/manual-decrypt with { "encryptedData": "your_encrypted_string", "method": "forge|crypto|both" }'
       });
     }
     
-    console.log('📝 Manual decryption request:');
+    console.log('📝 Manual decryption request:'); 
     console.log('- Data length:', encryptedData.length);
     console.log('- Method requested:', method || 'both');
     console.log('- Data preview:', encryptedData.substring(0, 100));
@@ -1019,7 +1029,7 @@ module.exports.manualDecrypt = async (req, res) => {
     // Test forge method
     if (!method || method === 'forge' || method === 'both') {
       console.log('🔄 Testing forge decryption...');
-      const forgeResult = decryptHBLResponse(encryptedData, privateKeyPem);
+      const forgeResult = fixedDecryptHBLResponse(encryptedData, privateKeyPem);
       results.forge = {
         success: Object.keys(forgeResult).length > 0,
         data: forgeResult,
@@ -1030,7 +1040,7 @@ module.exports.manualDecrypt = async (req, res) => {
     // Test crypto method
     if (!method || method === 'crypto' || method === 'both') {
       console.log('🔄 Testing crypto decryption...');
-      const cryptoResult = decryptHBLResponseWithNodeCrypto(encryptedData, privateKeyPem);
+      const cryptoResult = alternativeNodeCryptoDecrypt(encryptedData, privateKeyPem);
       results.crypto = {
         success: Object.keys(cryptoResult).length > 0,
         data: cryptoResult,
@@ -1256,7 +1266,7 @@ module.exports.healthCheck = (req, res) => {
       },
       decryption: {
         nodeForgeAvailable: !!forge,
-        functionReady: typeof decryptHBLResponse === 'function',
+        functionReady: typeof fixedDecryptHBLResponse === 'function',
         privateKeyConfigured: !!privateKeyPem,
         status: (!!forge && !!privateKeyPem) ? 'READY' : 'NOT_READY'
       }
