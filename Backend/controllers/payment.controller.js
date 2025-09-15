@@ -296,15 +296,21 @@ module.exports.handlePaymentSuccess = asyncErrorHandler(async (req, res) => {
       
       // Redirect to success page
       const successParams = new URLSearchParams({
-        status: 'success',
-        order: orderRefNumber,
-        amount: decryptedResponse.AMOUNT || '0',
-        transactionId: decryptedResponse.TRANSACTION_ID || decryptedResponse.TXN_ID || ''
-      });
+  RESPONSE_CODE: decryptedResponse.RESPONSE_CODE,
+  RESPONSE_MESSAGE: encodeURIComponent(decryptedResponse.RESPONSE_MESSAGE),
+  ORDER_REF_NUMBER: decryptedResponse.ORDER_REF_NUMBER,
+  PAYMENT_TYPE: decryptedResponse.PAYMENT_TYPE,
+  CARD_NUM_MASKED: decryptedResponse.CARD_NUM_MASKED,
+  DISCOUNTED_AMOUNT: decryptedResponse.DISCOUNTED_AMOUNT,
+  DISCOUNT_CAMPAIGN_ID: decryptedResponse.DISCOUNT_CAMPAIGN_ID,
+  GUID: decryptedResponse.GUID,
+  // Add any other fields you want to display
+});
+
+return res.redirect(`${process.env.FRONTEND_URL}/payment/success?${successParams}`);
       
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/success?${successParams}`);
-      
-    } else {
+    } 
+    else {
       // Payment failed
       const message = decryptedResponse.RESPONSE_MESSAGE || 'Payment failed';
       return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/failed?code=${responseCode}&message=${encodeURIComponent(message)}`);
@@ -330,10 +336,10 @@ module.exports.handlePaymentCancel = asyncErrorHandler(async (req, res) => {
       const dataEnd = rawUrl.indexOf('&', dataStart);
       encryptedData = dataEnd === -1 ? 
         rawUrl.substring(dataStart) : 
-        rawUrl.substring(dataStart, dataEnd);
-    }
+        rawUrl.substring(dataStart, dataEnd); 
+    } 
     
-    if (!encryptedData) {
+    if (!encryptedData) { 
       encryptedData = req.query?.data || req.body?.data;
     }
     
