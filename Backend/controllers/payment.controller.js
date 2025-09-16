@@ -221,7 +221,7 @@ module.exports.handlePaymentSuccess = asyncErrorHandler(async (req, res) => {
   console.log('🔗 Full URL:', req.url);
   
   try {
-    // Extract encrypted data from raw URL to avoid Express.js corruption
+    // Extract encrypted data from raw URL
     let encryptedData;
     
     if (req.url.includes('data=')) {
@@ -258,28 +258,31 @@ module.exports.handlePaymentSuccess = asyncErrorHandler(async (req, res) => {
     console.log('🎊 [SUCCESS] DECRYPTION SUCCESSFUL!');
     console.log('📋 [SUCCESS] Decrypted parameters:', decryptedResponse);
     
-    // Check if payment was successful
+    // For testing: ALWAYS show the success page with all decrypted data
+    // regardless of success/failure
+    
     const responseCode = decryptedResponse.RESPONSE_CODE;
-    const isSuccess = responseCode === '0' || responseCode === '100' || responseCode === 0 || responseCode === 100;
-    
-    console.log('🔍 [SUCCESS] Response code:', responseCode, 'Is success:', isSuccess);
-    
     const orderRefNumber = decryptedResponse.ORDER_REF_NUMBER || decryptedResponse.REFERENCE_NUMBER;
     
-    if (isSuccess && orderRefNumber) {
-      // Update payment and booking records
+    console.log('🔍 [SUCCESS] Response code:', responseCode);
+    console.log('🔍 [SUCCESS] Order ref:', orderRefNumber);
+    
+    // Update database if we have order reference
+    if (orderRefNumber) {
       try {
         const payment = await paymentModel.findOne({ orderRefNumber });
         if (payment) {
+          const isActualSuccess = responseCode === '0' || responseCode === '100' || responseCode === 0 || responseCode === 100;
+          
           await payment.updateOne({
-            status: 'completed',
-            completedAt: new Date(),
+            status: isActualSuccess ? 'completed' : 'failed',
+            completedAt: isActualSuccess ? new Date() : null,
             gatewayResponse: decryptedResponse,
-            transactionId: decryptedResponse.TRANSACTION_ID || decryptedResponse.TXN_ID,
+            transactionId: decryptedResponse.TRANSACTION_ID || decryptedResponse.TXN_ID || decryptedResponse.GUID,
             updatedAt: new Date()
           });
           
-          if (payment.bookingId) {
+          if (payment.bookingId && isActualSuccess) {
             await bookingModel.findByIdAndUpdate(payment.bookingId, {
               paymentStatus: 'paid',
               status: 'confirmed',
@@ -293,28 +296,29 @@ module.exports.handlePaymentSuccess = asyncErrorHandler(async (req, res) => {
       } catch (dbError) {
         console.error('❌ [SUCCESS] Database update failed:', dbError.message);
       }
-      
-      // Redirect to success page
-      const successParams = new URLSearchParams({
-  RESPONSE_CODE: decryptedResponse.RESPONSE_CODE,
-  RESPONSE_MESSAGE: encodeURIComponent(decryptedResponse.RESPONSE_MESSAGE),
-  ORDER_REF_NUMBER: decryptedResponse.ORDER_REF_NUMBER,
-  PAYMENT_TYPE: decryptedResponse.PAYMENT_TYPE,
-  CARD_NUM_MASKED: decryptedResponse.CARD_NUM_MASKED,
-  DISCOUNTED_AMOUNT: decryptedResponse.DISCOUNTED_AMOUNT,
-  DISCOUNT_CAMPAIGN_ID: decryptedResponse.DISCOUNT_CAMPAIGN_ID,
-  GUID: decryptedResponse.GUID,
-  // Add any other fields you want to display
-});
-
-return res.redirect(`${process.env.FRONTEND_URL}/payment/success?${successParams}`);
-      
-    } 
-    else {
-      // Payment failed
-      const message = decryptedResponse.RESPONSE_MESSAGE || 'Payment failed';
-      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/failed?code=${responseCode}&message=${encodeURIComponent(message)}`);
     }
+    
+    // BUILD SUCCESS PAGE URL WITH ALL HBL DATA
+    const successParams = new URLSearchParams({
+      RESPONSE_CODE: decryptedResponse.RESPONSE_CODE || '',
+      RESPONSE_MESSAGE: encodeURIComponent(decryptedResponse.RESPONSE_MESSAGE || ''),
+      ORDER_REF_NUMBER: decryptedResponse.ORDER_REF_NUMBER || '',
+      PAYMENT_TYPE: decryptedResponse.PAYMENT_TYPE || '',
+      CARD_NUM_MASKED: decryptedResponse.CARD_NUM_MASKED || '',
+      DISCOUNTED_AMOUNT: decryptedResponse.DISCOUNTED_AMOUNT || '0',
+      DISCOUNT_CAMPAIGN_ID: decryptedResponse.DISCOUNT_CAMPAIGN_ID || '0',
+      GUID: decryptedResponse.GUID || '',
+      amount: '66.53', // You can get this from payment record
+      currency: 'PKR',
+      transactionId: decryptedResponse.TRANSACTION_ID || decryptedResponse.TXN_ID || decryptedResponse.GUID || ''
+    });
+    
+    const successUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/success?${successParams.toString()}`;
+    
+    console.log('🎯 [SUCCESS] Redirecting to:', successUrl);
+    console.log('🎯 [SUCCESS] URL length:', successUrl.length);
+    
+    return res.redirect(successUrl);
     
   } catch (error) {
     console.error('💥 [SUCCESS] Handler error:', error);
