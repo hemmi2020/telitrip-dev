@@ -141,42 +141,24 @@ const rateLimitHandler = (req, res, next) => {
 };
 
 // CSP Error handler and fallback mechanism
+// In your errorHandler.middleware.js, replace the cspErrorHandler function with:
 const cspErrorHandler = (req, res, next) => {
-  // Set CSP headers that work with HBL Pay
-  res.setHeader('Content-Security-Policy', `
-    default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;
-    script-src 'self' 'unsafe-inline' 'unsafe-eval' 
-      https://testpaymentapi.hbl.com 
-      https://digitalbankingportal.hbl.com
-      https://h.online-metrix.net
-      https://includestest.ccdc02.com
-      https://cdnjs.cloudflare.com;
-    style-src 'self' 'unsafe-inline' 
-      https://fonts.googleapis.com
-      https://testpaymentapi.hbl.com
-      https://digitalbankingportal.hbl.com;
-    img-src 'self' data: blob: 
-      https://testpaymentapi.hbl.com
-      https://digitalbankingportal.hbl.com
-      https://www.gstatic.com;
-    font-src 'self' 
-      https://fonts.gstatic.com
-      https://testpaymentapi.hbl.com;
-    frame-src 'self'
-      https://pay.google.com
-      https://testpaymentapi.hbl.com
-      https://digitalbankingportal.hbl.com;
-    connect-src 'self'
-      https://testpaymentapi.hbl.com
-      https://digitalbankingportal.hbl.com
-      https://h.online-metrix.net;
-    frame-ancestors 'self' 
-      https://testpaymentapi.hbl.com
-      https://digitalbankingportal.hbl.com;
-  `.replace(/\s+/g, ' ').trim());
+  // Check if this is a payment-related route
+  const isPaymentRoute = req.url.includes('/payment') || 
+                        req.url.includes('/hblpay') || 
+                        req.url.includes('/callback') ||
+                        req.url.includes('/return');
 
-  // Add headers to prevent CSP issues
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  if (isPaymentRoute) {
+    // Disable CSP completely for payment routes
+    res.removeHeader('Content-Security-Policy');
+    res.setHeader('X-Frame-Options', 'ALLOWALL');
+    console.log('🚨 CSP DISABLED for payment route:', req.url);
+  } else {
+    // Keep basic CSP for other routes
+    res.setHeader('Content-Security-Policy', "default-src 'self' 'unsafe-inline' 'unsafe-eval' *; script-src 'self' 'unsafe-inline' 'unsafe-eval' *; style-src 'self' 'unsafe-inline' *; img-src 'self' data: *;");
+  }
+
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
 

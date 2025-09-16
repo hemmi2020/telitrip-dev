@@ -4,6 +4,7 @@ const { body, query, param, validationResult } = require('express-validator');
 const { authUser } = require('../middlewares/auth.middleware');
 const paymentController = require('../controllers/payment.controller');
 const ApiResponse = require('../utils/response.util');
+const { cspErrorHandler } = require('../middlewares/errorHandler.middleware');
 
 
 
@@ -133,7 +134,8 @@ const validateRefundRequest = [
 router.post('/hblpay/initiate',   
   validatePaymentInitiation,
   authUser, 
-  validateRequest,  
+  validateRequest,
+  cspErrorHandler,
   paymentController.initiateHBLPayPayment   
 ); 
 // // Create payment session
@@ -144,7 +146,7 @@ router.post('/hblpay/initiate',
 //   validatePaymentVerification,
 //   authUser, 
 //   validateRequest, 
-//   paymentController.verifyPayment
+//   paymentController.verifyPayment 
 // );
 
 // router.get('/verify/payment/:paymentId', 

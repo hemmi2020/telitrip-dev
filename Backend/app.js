@@ -7,9 +7,10 @@ const userRoutes = require('./routes/user.route');
 const hotelRoutes = require('./routes/hotel.route.js');   
 const paymentRoutes = require('./routes/payment.route');
 const bookingRoutes = require('./routes/booking.route');
-const { globalErrorHandler } = require('./middlewares/errorHandler.middleware');
+const { globalErrorHandler, cspErrorHandler } = require('./middlewares/errorHandler.middleware');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+
 
 
   
@@ -18,8 +19,14 @@ dotenv.config();
 connectToDb();
 const app = express();
 
+// ADD CSP ERROR HANDLER FIRST - MUST BE BEFORE OTHER MIDDLEWARE
+app.use(cspErrorHandler);
+
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false, // Disable helmet's CSP since we're using custom CSP
+  frameguard: false // Disable helmet's X-Frame-Options since we're setting custom headers
+}));
 
 app.set('trust proxy', 1);
 

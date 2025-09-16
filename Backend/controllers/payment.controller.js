@@ -371,12 +371,12 @@ module.exports.handlePaymentCancel = asyncErrorHandler(async (req, res) => {
     
     const orderRefNumber = decryptedResponse.ORDER_REF_NUMBER || decryptedResponse.REFERENCE_NUMBER;
     
-    // Update database records
+    // Update database records 
     if (orderRefNumber) {
       try {
         const payment = await paymentModel.findOne({ orderRefNumber });
         if (payment) {
-          await payment.updateOne({
+          await payment.updateOne({ 
             status: 'cancelled',
             cancelledAt: new Date(),
             gatewayResponse: decryptedResponse,
