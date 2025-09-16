@@ -329,9 +329,10 @@ module.exports.handlePaymentSuccess = asyncErrorHandler(async (req, res) => {
 // ==================== ENHANCED PAYMENT CANCEL HANDLER ====================
 module.exports.handlePaymentCancel = asyncErrorHandler(async (req, res) => {
   console.log('\n🚫 ========== PAYMENT CANCEL CALLBACK ==========');
+  console.log('🔗 Full URL:', req.url);
   
   try {
-    // Extract encrypted data
+    // Extract encrypted data from raw URL (same as success handler)
     let encryptedData;
     
     if (req.url.includes('data=')) {
@@ -340,37 +341,84 @@ module.exports.handlePaymentCancel = asyncErrorHandler(async (req, res) => {
       const dataEnd = rawUrl.indexOf('&', dataStart);
       encryptedData = dataEnd === -1 ? 
         rawUrl.substring(dataStart) : 
-        rawUrl.substring(dataStart, dataEnd); 
-    } 
+        rawUrl.substring(dataStart, dataEnd);
+      
+      console.log('🔧 [CANCEL] Extracted from raw URL:', encryptedData?.length, 'chars');
+    }
     
-    if (!encryptedData) { 
+    // Fallback to Express parsing
+    if (!encryptedData) {
       encryptedData = req.query?.data || req.body?.data;
     }
     
-    if (encryptedData) {
-      const decryptedResponse = enhancedDecryption(encryptedData, privateKeyPem);
-      
-      if (decryptedResponse && Object.keys(decryptedResponse).length > 0) {
-        const orderRefNumber = decryptedResponse.ORDER_REF_NUMBER;
-        
-        if (orderRefNumber) {
-          const payment = await paymentModel.findOne({ orderRefNumber });
-          if (payment) {
-            await payment.updateOne({
-              status: 'cancelled',
-              cancelledAt: new Date(),
-              gatewayResponse: decryptedResponse
-            });
-          }
+    if (!encryptedData) {
+      console.log('❌ [CANCEL] No encrypted data found - redirecting with basic info');
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/cancel?reason=no_data&timestamp=${Date.now()}`);
+    }
+    
+    console.log('📥 [CANCEL] Processing encrypted data...');
+    
+    // Use the same enhanced decryption as success handler
+    const decryptedResponse = enhancedDecryption(encryptedData, privateKeyPem);
+    
+    if (!decryptedResponse || Object.keys(decryptedResponse).length === 0) {
+      console.log('💥 [CANCEL] Decryption failed - redirecting with basic cancel info');
+      return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/cancel?reason=decrypt_failed&timestamp=${Date.now()}`);
+    }
+    
+    console.log('🎊 [CANCEL] DECRYPTION SUCCESSFUL!');
+    console.log('📋 [CANCEL] Decrypted parameters:', decryptedResponse);
+    
+    const orderRefNumber = decryptedResponse.ORDER_REF_NUMBER || decryptedResponse.REFERENCE_NUMBER;
+    
+    // Update database records
+    if (orderRefNumber) {
+      try {
+        const payment = await paymentModel.findOne({ orderRefNumber });
+        if (payment) {
+          await payment.updateOne({
+            status: 'cancelled',
+            cancelledAt: new Date(),
+            gatewayResponse: decryptedResponse,
+            responseCode: decryptedResponse.RESPONSE_CODE,
+            responseMessage: decryptedResponse.RESPONSE_MESSAGE,
+            updatedAt: new Date()
+          });
+          
+          console.log('✅ [CANCEL] Payment record updated to cancelled');
         }
+      } catch (dbError) {
+        console.error('❌ [CANCEL] Database update failed:', dbError.message);
       }
     }
     
-    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/cancelled`);
+    // BUILD CANCEL PAGE URL WITH ALL HBL DATA (same as success page approach)
+    const cancelParams = new URLSearchParams({
+      RESPONSE_CODE: decryptedResponse.RESPONSE_CODE || '',
+      RESPONSE_MESSAGE: encodeURIComponent(decryptedResponse.RESPONSE_MESSAGE || 'Payment was cancelled'),
+      ORDER_REF_NUMBER: decryptedResponse.ORDER_REF_NUMBER || '',
+      PAYMENT_TYPE: decryptedResponse.PAYMENT_TYPE || '',
+      CARD_NUM_MASKED: decryptedResponse.CARD_NUM_MASKED || '',
+      DISCOUNTED_AMOUNT: decryptedResponse.DISCOUNTED_AMOUNT || '0',
+      DISCOUNT_CAMPAIGN_ID: decryptedResponse.DISCOUNT_CAMPAIGN_ID || '0',
+      GUID: decryptedResponse.GUID || '',
+      amount: '66.53', // You can get this from payment record if available
+      currency: 'PKR',
+      transactionId: decryptedResponse.TRANSACTION_ID || decryptedResponse.TXN_ID || decryptedResponse.GUID || '',
+      status: 'cancelled',
+      timestamp: Date.now()
+    });
+    
+    const cancelUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/cancel?${cancelParams.toString()}`;
+    
+    console.log('🎯 [CANCEL] Redirecting to:', cancelUrl);
+    console.log('🎯 [CANCEL] URL length:', cancelUrl.length);
+    
+    return res.redirect(cancelUrl);
     
   } catch (error) {
     console.error('💥 [CANCEL] Handler error:', error);
-    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/cancelled`);
+    return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/payment/cancel?reason=server_error&timestamp=${Date.now()}`);
   }
 });
 
